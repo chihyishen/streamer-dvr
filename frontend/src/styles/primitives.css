@@ -1,0 +1,156 @@
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "SF Pro Display", "Inter", sans-serif;
+  background: var(--bg);
+  color: var(--text);
+  min-height: 100vh;
+  -webkit-font-smoothing: antialiased;
+  letter-spacing: -0.01em;
+}
+
+button,
+input,
+select {
+  font: inherit;
+}
+
+a {
+  color: inherit;
+  text-decoration-thickness: 1px;
+  text-underline-offset: 2px;
+}
+
+.display-face {
+  font-family: -apple-system, BlinkMacSystemFont, "SF Pro Display", "Inter", sans-serif;
+  letter-spacing: -0.03em;
+}
+
+.card {
+  background: var(--panel);
+  border: 1px solid var(--line);
+  padding: 24px;
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-soft);
+  position: relative;
+}
+
+.toolbar {
+  display: inline-flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.button {
+  border: 1px solid var(--line-strong);
+  padding: 8px 16px;
+  background: var(--accent);
+  color: white;
+  cursor: pointer;
+  font-weight: 500;
+  border-radius: var(--radius-md);
+  font-size: 14px;
+  transition: all 200ms cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.button.secondary {
+  background: var(--accent-2);
+  border-color: var(--accent-2);
+}
+
+.button.ghost {
+  color: var(--text);
+  background: transparent;
+  border-color: transparent;
+}
+
+.button.danger {
+  background: transparent;
+  color: var(--danger);
+  border-color: transparent;
+}
+
+.button:hover:not(:disabled) {
+  background: #262626;
+  border-color: #262626;
+  transform: translateY(-1px);
+}
+
+.button.ghost:hover:not(:disabled) {
+  background: var(--bg-2);
+  color: var(--text);
+  border-color: transparent;
+  transform: none;
+}
+
+.button.danger:hover:not(:disabled) {
+  background: #fef2f2;
+  color: var(--danger);
+}
+
+.button:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.muted {
+  color: var(--muted);
+}
+
+.status-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 10px;
+  font-size: 12px;
+  font-weight: 600;
+  border-radius: var(--radius-xl);
+  border: 1px solid var(--line);
+  background: var(--bg-2);
+}
+
+.status-pill.recording {
+  background: #fef2f2;
+  color: var(--danger);
+  border-color: #fee2e2;
+}
+
+.status-pill.recording::before {
+  content: "";
+  width: 6px;
+  height: 6px;
+  background: var(--danger);
+  border-radius: 50%;
+  animation: pulse-live 1.5s infinite ease-in-out;
+}
+
+.status-pill.paused {
+  background: var(--bg-3);
+  color: var(--muted);
+}
+
+.status-pill.error {
+  background: #fff1f2;
+  color: var(--danger);
+  border-color: #ffe4e6;
+}
+
+.mono {
+  font-family: "SF Mono", "Fira Code", "Menlo", monospace;
+  font-size: 12px;
+  letter-spacing: -0.02em;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}

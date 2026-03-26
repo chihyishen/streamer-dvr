@@ -1,0 +1,40 @@
+# --- Python ---
+__pycache__/
+*.py[cod]
+*$py.class
+.venv/
+.env
+.pytest_cache/
+*.egg-info/
+
+# --- Node.js ---
+node_modules/
+frontend/node_modules/
+frontend/dist/
+.eslintcache
+*.log
+
+# --- Project Specific Data (Sensitive) ---
+streamer_cookies.txt
+config.json
+channels.json
+events.db
+events.jsonl
+*.lock
+*.log
+sync_cookies.log
+
+# --- Planning Documents (Ignored as requested) ---
+.internal/
+prd.md
+prd_v2.md
+PROJECT_BLUEPRINT.md
+PROJECT_KNOWLEDGE_BASE.md
+CORE_LOGIC_CONSOLIDATED_V2.md
+FAVICON_V1_BACKUP.md
+TODO.md
+.notebooklm_id
+
+# --- OS Specific ---
+.DS_Store
+Thumbs.db

@@ -1,0 +1,16 @@
+{
+  "recordings_dir": "/path/to/recordings",
+  "organized_dir": "/path/to/organized_recordings",
+  "host": "0.0.0.0",
+  "port": 8787,
+  "timezone": "Asia/Taipei",
+  "default_poll_interval_seconds": 180,
+  "delete_source_after_convert": true,
+  "keep_failed_source": false,
+  "max_concurrent_probes": 5,
+  "probe_rate_limit_seconds": 5,
+  "probe_timeout_seconds": 90,
+  "cookies_from_browser": "edge",
+  "yt_dlp_path": "yt-dlp",
+  "ffmpeg_path": "ffmpeg"
+}
