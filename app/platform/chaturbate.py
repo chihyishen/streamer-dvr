@@ -32,6 +32,9 @@ class ChaturbatePlatform(PlatformAdapter):
             "--print",
             "is_live",
             channel.url,
+            "--add-header", "X-Requested-With:XMLHttpRequest",
+            "--add-header", f"Referer:{channel.url}",
+            "--user-agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
         ]
         
         # Read from the exported cookie file to avoid browser lock and permission issues.
@@ -104,6 +107,9 @@ class ChaturbatePlatform(PlatformAdapter):
             "mkv",
             "-o",
             str(output_path),
+            "--add-header", "X-Requested-With:XMLHttpRequest",
+            "--add-header", f"Referer:{channel.url}",
+            "--user-agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
         ]
         
         # Read from the exported cookie file to avoid browser lock and permission issues.
