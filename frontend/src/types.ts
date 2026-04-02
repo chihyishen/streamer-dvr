@@ -20,6 +20,8 @@ export interface Channel {
   active_pid: number | null;
   status: string;
   status_label: string;
+  status_detail: string | null;
+  status_tone: string | null;
   last_recorded_filename: string;
   last_checked_display: string;
   last_online_display: string;
@@ -43,6 +45,37 @@ export interface AppConfig {
   keep_failed_source: boolean;
 }
 
+export interface SessionSummary {
+  id: string;
+  channel_id: string;
+  channel_name: string;
+  status: string;
+  phase: string;
+  is_active: boolean;
+  started_at: string | null;
+  updated_at: string | null;
+  last_event_at: string | null;
+  summary: string;
+  failure_category: string | null;
+  failure_message: string | null;
+  source_status: string | null;
+  source_url: string | null;
+  source_candidate_id: string | null;
+  source_path_tail: string | null;
+  active_pid: number | null;
+  last_recorded_filename: string | null;
+  last_error: string | null;
+  event_count: number;
+}
+
+export interface SessionOverview {
+  total_count: number;
+  active_count: number;
+  recent_count: number;
+  source_issue_count: number;
+  auth_issue_count: number;
+}
+
 export interface EventItem {
   timestamp: string;
   timestamp_display: string;
@@ -50,6 +83,16 @@ export interface EventItem {
   event_type: string;
   channel_id: string | null;
   channel_name: string | null;
+  session_id: string | null;
+  session_phase: string | null;
+  phase: string | null;
+  failure_category: string | null;
+  failure_message: string | null;
+  source_status: string | null;
+  source_url: string | null;
+  source_candidate_id: string | null;
+  source_path_tail: string | null;
+  session_status: string | null;
   message: string;
   summary: string;
   tone: string;
@@ -58,6 +101,10 @@ export interface EventItem {
 
 export interface LogsResponse {
   items: EventItem[];
+  sessions: SessionSummary[];
+  active_sessions: SessionSummary[];
+  recent_sessions: SessionSummary[];
+  session_overview: SessionOverview;
   event_types: string[];
   channels: Array<{ id: string; username: string }>;
   total: number;
@@ -68,6 +115,10 @@ export interface LogsResponse {
 
 export interface BootstrapResponse {
   channels: Channel[];
+  sessions: SessionSummary[];
+  active_sessions: SessionSummary[];
+  recent_sessions: SessionSummary[];
+  session_overview: SessionOverview;
   categories: string[];
   all_channels_count: number;
   config: AppConfig;

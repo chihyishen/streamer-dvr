@@ -9,32 +9,42 @@
     <div class="overview-grid">
       <article class="overview-card">
         <div class="overview-label">Loaded</div>
-        <div class="overview-value">{{ eventsLength }}</div>
+        <div class="overview-value">{{ summaryCounts.loaded }}</div>
       </article>
       <article class="overview-card">
-        <div class="overview-label">Errors</div>
-        <div class="overview-value">{{ errorCount }}</div>
+        <div class="overview-label">Sessions</div>
+        <div class="overview-value">{{ summaryCounts.sessions }}</div>
       </article>
       <article class="overview-card">
-        <div class="overview-label">Recording</div>
-        <div class="overview-value">{{ recordingCount }}</div>
+        <div class="overview-label">Active</div>
+        <div class="overview-value">{{ summaryCounts.activeSessions }}</div>
+      </article>
+      <article class="overview-card">
+        <div class="overview-label">Recent</div>
+        <div class="overview-value">{{ summaryCounts.recentSessions }}</div>
       </article>
       <article class="overview-card">
         <div class="overview-label">Source Issues</div>
-        <div class="overview-value">{{ sourceIssueCount }}</div>
+        <div class="overview-value">{{ summaryCounts.sourceIssues }}</div>
+      </article>
+      <article class="overview-card">
+        <div class="overview-label">Auth Issues</div>
+        <div class="overview-value">{{ summaryCounts.authIssues }}</div>
       </article>
     </div>
   </section>
 </template>
 
 <script setup lang="ts">
-import { RouterLink } from "vue-router";
-
 defineProps<{
-  eventsLength: number;
-  errorCount: number;
-  recordingCount: number;
-  sourceIssueCount: number;
+  summaryCounts: {
+    loaded: number;
+    sessions: number;
+    activeSessions: number;
+    recentSessions: number;
+    sourceIssues: number;
+    authIssues: number;
+  };
 }>();
 </script>
 
@@ -70,7 +80,7 @@ defineProps<{
 
 .overview-grid {
   display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
+  grid-template-columns: repeat(6, minmax(0, 1fr));
   gap: 0;
   border-top: 1px solid var(--line-strong);
   border-left: 1px solid var(--line-strong);
@@ -105,13 +115,13 @@ defineProps<{
 
 @media (max-width: 900px) {
   .overview-grid {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
+    grid-template-columns: repeat(3, minmax(0, 1fr));
   }
 }
 
 @media (max-width: 640px) {
   .overview-grid {
-    grid-template-columns: 1fr;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 }
 </style>

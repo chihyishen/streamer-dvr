@@ -8,9 +8,20 @@ from pathlib import Path
 
 from ...common import compute_next_check_at, compute_warmup_check_at, utc_now, utc_now_iso
 from ...domain import ErrorCode, Status
+from ..session_core import FailureCategory, RecordingPhase
 
 
 class SchedulerRecoveryMixin:
+    def _resolve_recording_artifact_path(self, source_path: Path | None) -> Path | None:
+        if source_path is None:
+            return None
+        if source_path.exists():
+            return source_path
+        partial_path = source_path.with_name(f"{source_path.name}.part")
+        if partial_path.exists():
+            return partial_path
+        return source_path
+
     def _pid_exists(self, pid: int) -> bool:
         try:
             os.kill(pid, 0)
@@ -62,8 +73,8 @@ class SchedulerRecoveryMixin:
             return False
         if not channel.last_recorded_file:
             return True
-        source_path = Path(channel.last_recorded_file)
-        if not source_path.exists():
+        source_path = self._resolve_recording_artifact_path(Path(channel.last_recorded_file))
+        if source_path is None or not source_path.exists():
             return True
         try:
             modified_age = time.time() - source_path.stat().st_mtime
@@ -75,11 +86,14 @@ class SchedulerRecoveryMixin:
         pid = channel.active_pid
         if not pid:
             return
+        session = None
+        if getattr(self, "sessions", None) is not None:
+            session = self.sessions.get(channel.id)
         if self._pid_exists(pid):
             try:
                 os.kill(pid, signal.SIGTERM)
             except OSError:
-                self.store.log_info("recovery_signal_failed", f"Process with PID {pid} already exited, skipping.", channel_id)
+                self.store.log_info("recovery_signal_failed", f"Process with PID {pid} already exited, skipping.", channel.id)
         self.store.log_error(
             ErrorCode.RECORDER_EXITED.value,
             "Recording stalled, recovering state",
@@ -87,13 +101,41 @@ class SchedulerRecoveryMixin:
             pid=pid,
             source=channel.last_recorded_file,
         )
+        if session is not None:
+            self.sessions.fail(
+                session,
+                phase=RecordingPhase.RECORDING,
+                category=FailureCategory.PROCESS_FAILURE,
+                message="Recording stalled, recovering state",
+                pid=pid,
+                source=channel.last_recorded_file,
+            )
 
     def _recover_stale_recording(self, channel) -> None:
-        source_path = Path(channel.last_recorded_file) if channel.last_recorded_file else None
+        session = None
+        if getattr(self, "sessions", None) is not None:
+            session = self.sessions.get(channel.id) or self.sessions.open(
+                channel.id,
+                trigger="recovery",
+                metadata={"reason": "stale_recording"},
+            )
+            self.sessions.transition(
+                session,
+                RecordingPhase.RECOVERING,
+                "Recovering stale recording",
+                event_type="recording_session_recovering",
+            )
+        source_path = self._resolve_recording_artifact_path(
+            Path(channel.last_recorded_file) if channel.last_recorded_file else None
+        )
         config = self.store.load_config()
         mp4_path = None
-        if source_path and source_path.suffix == ".mkv":
-            mp4_path = Path(config.organized_dir) / channel.username / f"{source_path.stem}.mp4"
+        recording_stem = None
+        if source_path:
+            recording_stem = source_path.name.removesuffix(".part")
+            recording_stem = Path(recording_stem).stem
+        if source_path and recording_stem:
+            mp4_path = Path(config.organized_dir) / channel.username / f"{recording_stem}.mp4"
         if mp4_path and mp4_path.exists():
             self.channel_service.update_status(
                 channel.id,
@@ -104,6 +146,13 @@ class SchedulerRecoveryMixin:
                 last_error=None,
                 next_check_at=None if channel.paused else compute_next_check_at(channel.id, channel.poll_interval_seconds),
             )
+            if session is not None:
+                self.sessions.complete(
+                    session,
+                    message="Recovered stale recording state from converted file",
+                    outcome="completed",
+                    output=str(mp4_path),
+                )
             self.store.log_info(
                 "recording_recovered",
                 "Recovered stale recording state from converted file",
@@ -111,8 +160,7 @@ class SchedulerRecoveryMixin:
                 output=str(mp4_path),
             )
             return
-        if source_path and source_path.suffix == ".mkv" and source_path.exists() and source_path.stat().st_size > 0:
-            mp4_path = Path(config.organized_dir) / channel.username / f"{source_path.stem}.mp4"
+        if source_path and mp4_path and source_path.exists() and source_path.stat().st_size > 0:
             self.store.log_info(
                 "recording_recovered",
                 "Recovered stale recording, starting conversion",
@@ -121,9 +169,24 @@ class SchedulerRecoveryMixin:
                 output=str(mp4_path),
             )
             self._convert_recording(channel.id, source_path, mp4_path)
+            if session is not None:
+                self.sessions.complete(
+                    session,
+                    message="Recovered stale recording by conversion",
+                    outcome="completed",
+                    source=str(source_path),
+                    output=str(mp4_path),
+                )
             return
         next_status = Status.PAUSED if channel.paused else Status.IDLE
         self.channel_service.update_status(channel.id, status=next_status, active_pid=None)
+        if session is not None:
+            self.sessions.complete(
+                session,
+                message="Recovered stale recording state",
+                outcome="aborted",
+                source=str(source_path) if source_path else None,
+            )
 
     def _is_due(self, next_check_at: str | None) -> bool:
         if not next_check_at:

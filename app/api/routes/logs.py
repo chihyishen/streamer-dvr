@@ -35,4 +35,13 @@ def register_log_routes(app: FastAPI, *, store: JsonStore, channel_service: Chan
         event_types = sorted({event.get("event_type", "") for event in event_samples if event.get("event_type")})
         items = [serialize_event(event, channel_name_by_id) for event in events]
         has_next = total > (offset + limit)
-        return serialize_logs_response(channels, items, event_types, total=total, limit=limit, offset=offset, has_next=has_next)
+        return serialize_logs_response(
+            channels,
+            items,
+            event_types,
+            total=total,
+            limit=limit,
+            offset=offset,
+            has_next=has_next,
+            recent_events=event_samples,
+        )

@@ -2,14 +2,29 @@ import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from "vue"
 
 import { api } from "../api";
 import { countErrorEvents, countRecordingEvents, countSourceIssueEvents } from "../utils/logs";
-import type { EventItem } from "../types";
+import { deriveSessionOverview, normalizeSessions, sortSessions } from "../utils/sessions";
+import type { EventItem, SessionOverview, SessionSummary } from "../types";
+
+function emptySessionOverview(): SessionOverview {
+  return {
+    total_count: 0,
+    active_count: 0,
+    recent_count: 0,
+    source_issue_count: 0,
+    auth_issue_count: 0,
+  };
+}
 
 export function useLogsPage() {
   const loading = ref(false);
   const events = ref<EventItem[]>([]);
   const eventTypes = ref<string[]>([]);
   const channels = ref<Array<{ id: string; username: string }>>([]);
-  const activeQuickFilter = ref<"all" | "errors" | "recording" | "source">("all");
+  const sessions = ref<SessionSummary[]>([]);
+  const activeSessions = ref<SessionSummary[]>([]);
+  const recentSessions = ref<SessionSummary[]>([]);
+  const sessionOverview = ref<SessionOverview>(emptySessionOverview());
+  const activeQuickFilter = ref<"all" | "errors" | "recording" | "source">("errors");
   const total = ref(0);
   const offset = ref(0);
   const hasNext = ref(false);
@@ -17,13 +32,21 @@ export function useLogsPage() {
   const filters = reactive({
     channel_id: "",
     event_type: "",
-    level: "",
+    level: "ERROR",
     limit: 20,
   });
 
   const errorCount = computed(() => countErrorEvents(events.value));
   const recordingCount = computed(() => countRecordingEvents(events.value));
   const sourceIssueCount = computed(() => countSourceIssueEvents(events.value));
+  const summaryCounts = computed(() => ({
+    loaded: events.value.length,
+    sessions: sessionOverview.value.total_count || sessions.value.length,
+    activeSessions: sessionOverview.value.active_count || activeSessions.value.length,
+    recentSessions: sessionOverview.value.recent_count || recentSessions.value.length,
+    sourceIssues: sessionOverview.value.source_issue_count || sourceIssueCount.value,
+    authIssues: sessionOverview.value.auth_issue_count,
+  }));
   const filterSummary = computed(() => {
     const parts: string[] = [];
     if (filters.channel_id) {
@@ -35,6 +58,9 @@ export function useLogsPage() {
     }
     if (filters.level) {
       parts.push(filters.level);
+    }
+    if (!parts.length && filters.level === "ERROR") {
+      return "Showing refined errors only.";
     }
     if (!parts.length) {
       return "Showing the full event stream.";
@@ -63,6 +89,17 @@ export function useLogsPage() {
       events.value = payload.items;
       eventTypes.value = payload.event_types;
       channels.value = payload.channels;
+      const normalizedSessions = normalizeSessions(
+        payload.sessions.length ? payload.sessions : [...payload.active_sessions, ...payload.recent_sessions],
+        payload.channels,
+        payload.items,
+      );
+      sessions.value = normalizedSessions;
+      activeSessions.value = sortSessions(payload.active_sessions.length ? payload.active_sessions : normalizedSessions.filter((session) => session.is_active));
+      recentSessions.value = sortSessions(payload.recent_sessions.length ? payload.recent_sessions : normalizedSessions.slice(0, 8));
+      sessionOverview.value = payload.session_overview.total_count
+        ? payload.session_overview
+        : deriveSessionOverview(normalizedSessions, recentSessions.value);
       total.value = payload.total;
       offset.value = payload.offset;
       hasNext.value = payload.has_next;
@@ -80,9 +117,9 @@ export function useLogsPage() {
     offset.value = 0;
     filters.channel_id = "";
     filters.event_type = "";
-    filters.level = "";
+    filters.level = "ERROR";
     filters.limit = 300;
-    activeQuickFilter.value = "all";
+    activeQuickFilter.value = "errors";
     void loadLogs();
   }
 
@@ -153,6 +190,11 @@ export function useLogsPage() {
     errorCount,
     recordingCount,
     sourceIssueCount,
+    sessions,
+    activeSessions,
+    recentSessions,
+    sessionOverview,
+    summaryCounts,
     filterSummary,
     pageSummary,
     resetFilters,

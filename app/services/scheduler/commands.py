@@ -14,7 +14,9 @@ class SchedulerCommandMixin:
             channel = self.channel_service.get_channel(channel_id)
         except KeyError:
             return
-        if channel.status in {Status.CHECKING, Status.RECORDING}:
+        session_registry = getattr(self, "sessions", None)
+        active_session = session_registry.get(channel_id) if session_registry is not None else None
+        if channel.status in {Status.CHECKING, Status.RECORDING} or active_session is not None:
             return
         threading.Thread(target=self._check_channel_by_id, args=(channel_id,), daemon=True).start()
 

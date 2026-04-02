@@ -2,7 +2,6 @@
   <article class="log-card" :class="event.tone">
     <div class="log-top">
       <div class="log-meta">
-        <span class="event-type">{{ formatEventType(event.event_type) }}</span>
         <span class="level-pill" :class="event.level.toLowerCase()">{{ event.level }}</span>
         <span class="channel-pill">{{ event.channel_name || "-" }}</span>
       </div>
@@ -12,8 +11,12 @@
     <div class="summary">{{ event.summary }}</div>
     <div class="message" v-if="event.message !== event.summary">{{ event.message }}</div>
 
-    <div class="metadata-row" v-if="event.metadata.return_code">
-      <span class="meta-chip">code {{ event.metadata.return_code }}</span>
+    <div class="metadata-row">
+      <span class="meta-chip" v-if="event.failure_category">{{ event.failure_category }}</span>
+      <span class="meta-chip" v-if="event.source_status">{{ event.source_status }}</span>
+      <span class="meta-chip" v-if="event.source_candidate_id">{{ event.source_candidate_id }}</span>
+      <span class="meta-chip" v-if="event.source_path_tail">{{ event.source_path_tail }}</span>
+      <span class="meta-chip" v-if="event.metadata.return_code">code {{ event.metadata.return_code }}</span>
     </div>
 
     <details class="raw-output" v-if="event.metadata.raw_output || event.metadata.output">
@@ -29,10 +32,6 @@ import type { EventItem } from "../../types";
 defineProps<{
   event: EventItem;
 }>();
-
-function formatEventType(value: string) {
-  return value.replaceAll("_", " ");
-}
 </script>
 
 <style scoped>
@@ -61,14 +60,7 @@ function formatEventType(value: string) {
   display: flex;
   align-items: center;
   gap: 12px;
-}
-
-.event-type {
-  font-size: 11px;
-  text-transform: uppercase;
-  letter-spacing: 0.05em;
-  color: var(--muted);
-  font-weight: 700;
+  flex-wrap: wrap;
 }
 
 .level-pill,

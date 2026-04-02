@@ -4,6 +4,12 @@ import { useAppStore } from "../stores/app";
 import { compareChannels } from "../utils/channel";
 import type { AppConfig, Channel } from "../types";
 
+const UNAVAILABLE_STATUS_DETAILS = new Set([
+  "Private show",
+  "Hidden show",
+  "Password protected",
+]);
+
 export function useDashboardPage() {
   const store = useAppStore();
   const selectedCategory = ref("default");
@@ -31,13 +37,12 @@ export function useDashboardPage() {
     return visibleChannels.slice().sort((left, right) => compareChannels(left, right));
   });
 
-  const compactEvents = computed(() => store.recentEvents.slice(0, 8));
-
-  const statusCounts = computed(() => ({
-    recording: store.channels.filter((channel) => channel.status_label === "recording").length,
-    offline: store.channels.filter((channel) => channel.status_label === "offline").length,
-    paused: store.channels.filter((channel) => channel.status_label === "paused").length,
-    error: store.channels.filter((channel) => channel.status_label === "error").length,
+  const summaryCounts = computed(() => ({
+    channels: store.allChannelsCount,
+    online: store.channels.filter((channel) => channel.status === "recording").length,
+    unavailable: store.channels.filter((channel) => UNAVAILABLE_STATUS_DETAILS.has(channel.status_detail || "")).length,
+    errors: store.channels.filter((channel) => channel.status === "error").length,
+    paused: store.channels.filter((channel) => channel.paused).length,
   }));
 
   function syncCategory() {
@@ -143,8 +148,7 @@ export function useDashboardPage() {
     deleteDraft,
     addForm,
     filteredChannels,
-    compactEvents,
-    statusCounts,
+    summaryCounts,
     openSettings,
     startEdit,
     confirmDelete,

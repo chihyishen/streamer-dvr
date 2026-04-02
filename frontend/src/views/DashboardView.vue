@@ -2,16 +2,11 @@
   <section class="dashboard-layout" v-if="store.config">
     <div class="summary-area">
       <DashboardSummary
-        :all-channels-count="store.allChannelsCount"
-        :status-counts="statusCounts"
+        :summary-counts="summaryCounts"
         :is-refreshing="store.loading"
         @add="showAdd = true"
         @settings="openSettings"
       />
-    </div>
-
-    <div class="activity-area">
-      <RecentActivityPanel :events="compactEvents" />
     </div>
 
     <section class="card channels-panel">
@@ -93,7 +88,6 @@ import ChannelCard from "../components/dashboard/ChannelCard.vue";
 import ChannelFormModal from "../components/dashboard/ChannelFormModal.vue";
 import DashboardSummary from "../components/dashboard/DashboardSummary.vue";
 import DeleteConfirmModal from "../components/dashboard/DeleteConfirmModal.vue";
-import RecentActivityPanel from "../components/dashboard/RecentActivityPanel.vue";
 import SettingsModal from "../components/dashboard/SettingsModal.vue";
 import { useDashboardPage } from "../composables/useDashboardPage";
 
@@ -107,8 +101,7 @@ const {
   deleteDraft,
   addForm,
   filteredChannels,
-  compactEvents,
-  statusCounts,
+  summaryCounts,
   openSettings,
   startEdit,
   confirmDelete,
@@ -122,21 +115,16 @@ const {
 <style scoped>
 .dashboard-layout {
   display: grid;
-  grid-template-columns: minmax(0, 1.7fr) 280px;
+  grid-template-columns: minmax(0, 1fr);
   grid-template-areas:
-    "summary activity"
-    "channels activity";
+    "summary"
+    "channels";
   gap: 48px;
   align-items: start;
 }
 
 .summary-area {
   grid-area: summary;
-  min-width: 0;
-}
-
-.activity-area {
-  grid-area: activity;
   min-width: 0;
 }
 

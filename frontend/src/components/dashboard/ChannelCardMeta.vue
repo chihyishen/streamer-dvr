@@ -15,6 +15,10 @@
         <span class="metric-label">Last check</span>
         <span>{{ channel.last_checked_display }}</span>
       </div>
+      <div class="info-inline" v-if="channel.last_error">
+        <span class="metric-label">Issue</span>
+        <span class="issue-text">{{ channel.last_error }}</span>
+      </div>
     </div>
   </div>
 </template>
@@ -54,6 +58,12 @@ defineProps<{
   font-size: 14px;
   color: var(--text);
   font-weight: 500;
+}
+
+.issue-text {
+  color: var(--danger);
+  text-align: right;
+  overflow-wrap: anywhere;
 }
 
 .info-inline {

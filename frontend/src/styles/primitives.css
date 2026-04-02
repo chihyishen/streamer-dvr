@@ -118,6 +118,12 @@ a {
   border-color: #fee2e2;
 }
 
+.status-pill.good {
+  background: #ecfdf3;
+  color: #166534;
+  border-color: #bbf7d0;
+}
+
 .status-pill.recording::before {
   content: "";
   width: 6px;
@@ -136,6 +142,18 @@ a {
   background: #fff1f2;
   color: var(--danger);
   border-color: #ffe4e6;
+}
+
+.status-pill.bad {
+  background: #fff1f2;
+  color: var(--danger);
+  border-color: #ffe4e6;
+}
+
+.status-pill.neutral {
+  background: var(--bg-2);
+  color: var(--text);
+  border-color: var(--line);
 }
 
 .mono {

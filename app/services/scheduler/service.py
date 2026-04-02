@@ -7,6 +7,7 @@ import time
 from ...domain import Status
 from ..channel import ChannelService
 from ..recorder import RecorderService
+from ..session_core import RecordingSessionRegistry
 from ...storage import JsonStore
 from .capture import SchedulerCaptureMixin
 from .commands import SchedulerCommandMixin
@@ -27,6 +28,7 @@ class SchedulerService(SchedulerRecoveryMixin, SchedulerCommandMixin, SchedulerP
         self._record_lock = threading.RLock()
         self._active_processes: dict[str, subprocess.Popen[str]] = {}
         self._last_probe_started_at = 0.0
+        self.sessions = RecordingSessionRegistry(store)
 
     def start(self) -> None:
         if self._running:

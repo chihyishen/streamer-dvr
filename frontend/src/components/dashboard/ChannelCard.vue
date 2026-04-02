@@ -8,7 +8,9 @@
           </a>
           <div class="badge-row">
             <span class="platform-badge" :title="channel.platform">{{ platformBadge(channel.platform) }}</span>
-            <span class="status-pill" :class="channel.status_label">{{ channel.status_label }}</span>
+            <span class="status-pill" :class="channel.status_tone || channel.status_label">
+              {{ channel.status_detail || channel.status_label }}
+            </span>
           </div>
         </div>
       </div>
@@ -24,11 +26,6 @@
     </div>
 
     <ChannelCardMeta :channel="channel" />
-
-    <div class="metric error-panel" v-if="channel.last_error">
-      <div class="metric-label">Error details</div>
-      <div class="error-text">{{ channel.last_error }}</div>
-    </div>
 
     <div class="mobile-actions">
       <ChannelCardActions
@@ -66,6 +63,7 @@ defineEmits<{
   padding: 32px;
   display: grid;
   gap: 24px;
+  min-width: 0;
   background: var(--panel);
   border-radius: var(--radius-xl);
   box-shadow: var(--shadow-soft);
@@ -165,31 +163,4 @@ defineEmits<{
   border: 1px solid var(--line);
 }
 
-.metric {
-  padding: 16px;
-  border-radius: var(--radius-lg);
-  background: var(--bg-2);
-  border: 1px solid var(--line);
-}
-
-.metric-label {
-  font-size: 12px;
-  letter-spacing: -0.01em;
-  font-weight: 600;
-  color: var(--muted);
-}
-
-.error-panel {
-  background: #fef2f2;
-  border: 1px solid #fee2e2;
-  border-radius: var(--radius-lg);
-  padding: 16px 20px;
-}
-
-.error-text {
-  color: var(--danger);
-  line-height: 1.5;
-  font-size: 13px;
-  font-weight: 500;
-}
 </style>

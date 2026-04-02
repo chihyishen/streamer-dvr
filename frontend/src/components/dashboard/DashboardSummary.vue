@@ -12,24 +12,24 @@
     </div>
     <div class="overview-grid">
       <article class="overview-tile primary-tile">
-        <strong>{{ allChannelsCount }}</strong>
-        <span class="overview-detail">Channels</span>
+        <strong>{{ summaryCounts.channels }}</strong>
+        <span class="overview-detail">Streamers</span>
       </article>
       <article class="overview-tile">
-        <strong>{{ statusCounts.recording }}</strong>
-        <span class="overview-detail">Recording</span>
+        <strong>{{ summaryCounts.online }}</strong>
+        <span class="overview-detail">Online</span>
       </article>
       <article class="overview-tile">
-        <strong>{{ statusCounts.offline }}</strong>
-        <span class="overview-detail">Offline</span>
+        <strong>{{ summaryCounts.unavailable }}</strong>
+        <span class="overview-detail">Private / hidden</span>
       </article>
       <article class="overview-tile">
-        <strong>{{ statusCounts.paused }}</strong>
+        <strong>{{ summaryCounts.errors }}</strong>
+        <span class="overview-detail">Errors</span>
+      </article>
+      <article class="overview-tile">
+        <strong>{{ summaryCounts.paused }}</strong>
         <span class="overview-detail">Paused</span>
-      </article>
-      <article class="overview-tile">
-        <strong>{{ statusCounts.error }}</strong>
-        <span class="overview-detail">Error</span>
       </article>
     </div>
   </section>
@@ -37,8 +37,13 @@
 
 <script setup lang="ts">
 defineProps<{
-  allChannelsCount: number;
-  statusCounts: { recording: number; offline: number; paused: number; error: number };
+  summaryCounts: {
+    channels: number;
+    online: number;
+    unavailable: number;
+    errors: number;
+    paused: number;
+  };
   isRefreshing?: boolean;
 }>();
 
@@ -93,8 +98,8 @@ defineEmits<{
 
 .overview-grid {
   display: grid;
-  grid-template-columns: repeat(5, 1fr);
-  gap: 40px;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 24px;
   padding-top: 48px;
   border-top: 1px solid var(--line);
 }
@@ -119,14 +124,9 @@ defineEmits<{
   font-weight: 600;
 }
 
-@media (max-width: 1000px) {
-  .top-summary {
-    padding: 32px;
-  }
+@media (max-width: 1100px) {
   .overview-grid {
     grid-template-columns: repeat(3, 1fr);
-    gap: 32px;
-    padding-top: 32px;
   }
 }
 
@@ -134,22 +134,26 @@ defineEmits<{
   .top-summary {
     padding: 24px;
   }
+
   .summary-head {
     flex-direction: column;
     align-items: stretch;
     gap: 20px;
     margin-bottom: 32px;
   }
+
   .summary-title {
     font-size: 24px;
     text-align: left;
   }
+
   .top-actions {
     display: grid;
     grid-template-columns: 1fr 1fr;
     width: 100%;
     gap: 8px;
   }
+
   .top-actions .button {
     width: 100%;
     padding: 10px 4px;
@@ -157,16 +161,19 @@ defineEmits<{
     display: flex;
     justify-content: center;
   }
+
   .refresh-note {
     grid-column: 1 / -1;
     text-align: center;
     margin-bottom: 4px;
   }
+
   .overview-grid {
     grid-template-columns: repeat(2, 1fr);
     gap: 24px;
     padding-top: 24px;
   }
+
   .overview-tile strong {
     font-size: 28px;
   }

@@ -16,12 +16,24 @@ class RecorderPathMixin:
         suffix = f"[{' and '.join(filters)}]" if filters else ""
         return f"bestvideo{suffix}+bestaudio/best{suffix}/best"
 
-    def build_record_command(self, channel: Channel, config: AppConfig, output_path: Path) -> list[str]:
+    def build_record_command(self, channel: Channel, config: AppConfig, output_path: Path, source_url: str) -> list[str]:
         adapter = self.platforms.get(channel.platform)
         return adapter.build_record_command(
             channel=channel,
             config=config,
             output_path=output_path,
+            source_url=source_url,
+            ensure_dependency=self._ensure_dependency,
+            format_selector=self._build_format_selector(channel),
+        )
+
+    def build_resolved_record_command(self, channel: Channel, config: AppConfig, output_path: Path, source_url: str) -> list[str]:
+        adapter = self.platforms.get(channel.platform)
+        return adapter.build_record_command_for_source(
+            channel=channel,
+            config=config,
+            output_path=output_path,
+            source_url=source_url,
             ensure_dependency=self._ensure_dependency,
             format_selector=self._build_format_selector(channel),
         )

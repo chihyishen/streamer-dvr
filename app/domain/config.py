@@ -15,6 +15,10 @@ class AppConfig(BaseModel):
     max_concurrent_probes: int = 5
     probe_rate_limit_seconds: int = 5
     probe_timeout_seconds: int = 90
+    source_retry_max_attempts: int = 5
+    source_retry_initial_delay_seconds: float = 1.0
+    source_retry_backoff_multiplier: float = 2.0
+    source_retry_max_delay_seconds: float = 16.0
     cookies_from_browser: str = "edge"
     yt_dlp_path: str = "yt-dlp"
     ffmpeg_path: str = "ffmpeg"
@@ -32,6 +36,10 @@ class AppConfigUpdate(BaseModel):
     max_concurrent_probes: int
     probe_rate_limit_seconds: int
     probe_timeout_seconds: int
+    source_retry_max_attempts: int = 5
+    source_retry_initial_delay_seconds: float = 1.0
+    source_retry_backoff_multiplier: float = 2.0
+    source_retry_max_delay_seconds: float = 16.0
     cookies_from_browser: str
     yt_dlp_path: str
     ffmpeg_path: str

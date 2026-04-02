@@ -4,13 +4,27 @@ import { api } from "../api";
 import { connectDashboardStream, disconnectDashboardStream } from "./dashboard-stream";
 import { createInitialState, type AppState } from "./app.types";
 import { createToast, formatApiError } from "./toast-manager";
-import type { AppConfig, BootstrapResponse, Channel } from "../types";
+import type { AppConfig, BootstrapResponse, Channel, SessionOverview, SessionSummary } from "../types";
+import { deriveSessionOverview, deriveSessionsFromChannels, normalizeSessions, sortSessions } from "../utils/sessions";
+
+function emptySessionOverview(): SessionOverview {
+  return {
+    total_count: 0,
+    active_count: 0,
+    recent_count: 0,
+    source_issue_count: 0,
+    auth_issue_count: 0,
+  };
+}
 
 export const useAppStore = defineStore("app", {
   state: (): AppState => createInitialState(),
   getters: {
     channelMap(state): Record<string, Channel> {
       return Object.fromEntries(state.channels.map((channel) => [channel.id, channel]));
+    },
+    sessionMap(state): Record<string, SessionSummary> {
+      return Object.fromEntries(state.sessions.map((session) => [session.channel_id, session]));
     },
   },
   actions: {
@@ -33,6 +47,18 @@ export const useAppStore = defineStore("app", {
       this.config = payload.config;
       this.recentEvents = payload.recent_events;
       this.allChannelsCount = payload.all_channels_count;
+
+      const normalizedSessions = normalizeSessions(
+        payload.sessions.length ? payload.sessions : [...payload.active_sessions, ...payload.recent_sessions],
+        payload.channels,
+        payload.recent_events,
+      );
+      this.sessions = normalizedSessions;
+      this.activeSessions = sortSessions(payload.active_sessions.length ? payload.active_sessions : normalizedSessions.filter((session) => session.is_active));
+      this.recentSessions = sortSessions(payload.recent_sessions.length ? payload.recent_sessions : normalizedSessions.slice(0, 8));
+      this.sessionOverview = payload.session_overview.total_count
+        ? payload.session_overview
+        : deriveSessionOverview(normalizedSessions, this.recentSessions);
       this.loaded = true;
     },
     async refresh() {

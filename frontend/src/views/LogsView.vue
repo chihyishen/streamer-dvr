@@ -1,10 +1,7 @@
 <template>
   <section class="logs-page">
     <LogsSummary
-      :events-length="events.length"
-      :error-count="errorCount"
-      :recording-count="recordingCount"
-      :source-issue-count="sourceIssueCount"
+      :summary-counts="summaryCounts"
     />
 
     <div class="logs-content">
@@ -58,9 +55,7 @@ const {
   offset,
   hasNext,
   filters,
-  errorCount,
-  recordingCount,
-  sourceIssueCount,
+  summaryCounts,
   filterSummary,
   pageSummary,
   resetFilters,

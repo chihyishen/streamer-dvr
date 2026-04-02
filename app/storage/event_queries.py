@@ -14,9 +14,9 @@ def build_event_filters(
         values.append(channel_id)
     if event_type:
         conditions.append("event_type = ?")
-        values.append(event_type)
+        values.append(getattr(event_type, "value", event_type))
     if level:
         conditions.append("UPPER(level) = ?")
-        values.append(level.upper())
+        values.append(str(getattr(level, "value", level)).upper())
     where_clause = f"WHERE {' AND '.join(conditions)}" if conditions else ""
     return where_clause, values
