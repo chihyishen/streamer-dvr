@@ -2,8 +2,10 @@ from __future__ import annotations
 
 import json
 import unittest
+from datetime import datetime
 from pathlib import Path
 from tempfile import TemporaryDirectory
+from zoneinfo import ZoneInfo
 
 from app.domain import (
     AppConfig,
@@ -23,6 +25,8 @@ from app.storage import JsonStore
 
 
 class SqliteStoreTests(unittest.TestCase):
+    TZ = ZoneInfo("Asia/Taipei")
+
     def _build_store(self, tmpdir: str) -> JsonStore:
         base = Path(tmpdir)
         return JsonStore(
@@ -171,6 +175,167 @@ class SqliteStoreTests(unittest.TestCase):
             self.assertEqual(events[0]["metadata"], {"pid": 5678})
             self.assertEqual(events[1]["level"], "INFO")
             self.assertEqual(events[1]["metadata"], {"pid": 1234})
+
+    def test_prune_retained_history_keeps_recent_logs_and_recent_errors(self) -> None:
+        with TemporaryDirectory() as tmpdir:
+            store = self._build_store(tmpdir)
+            store.ensure_files()
+
+            old_completed = store.create_session(
+                RecordingSession(
+                    id="sess-old-completed",
+                    channel_id="alice",
+                    status=RecordingSessionStatus.COMPLETED,
+                    current_phase=RecordingSessionPhase.FINALIZING,
+                    created_at="2026-03-20T01:00:00+08:00",
+                    updated_at="2026-03-20T01:30:00+08:00",
+                    ended_at="2026-03-20T01:30:00+08:00",
+                    metadata={"reason": "old"},
+                )
+            )
+            store.create_session(
+                RecordingSession(
+                    id="sess-recent-completed",
+                    channel_id="alice",
+                    status=RecordingSessionStatus.COMPLETED,
+                    current_phase=RecordingSessionPhase.FINALIZING,
+                    created_at="2026-04-06T01:00:00+08:00",
+                    updated_at="2026-04-06T01:30:00+08:00",
+                    ended_at="2026-04-06T01:30:00+08:00",
+                    metadata={"reason": "recent"},
+                )
+            )
+            store.create_session(
+                RecordingSession(
+                    id="sess-active",
+                    channel_id="alice",
+                    status=RecordingSessionStatus.RECORDING,
+                    current_phase=RecordingSessionPhase.RECORDING,
+                    created_at="2026-03-20T01:00:00+08:00",
+                    updated_at="2026-04-07T01:30:00+08:00",
+                    started_at="2026-04-07T01:00:00+08:00",
+                    metadata={"reason": "active"},
+                )
+            )
+            store.upsert_resolved_source(
+                ResolvedSource(
+                    id="src-old",
+                    session_id=old_completed.id,
+                    resolver_tool="resolver",
+                    stream_url="https://example.com/old.m3u8",
+                    auth_mode=SourceAuthMode.COOKIES,
+                    metadata={"kind": "old"},
+                )
+            )
+
+            store.append_event(
+                Event(
+                    timestamp="2026-03-20T01:00:00+08:00",
+                    level="INFO",
+                    event_type="old_info",
+                    channel_id="alice",
+                    message="old info",
+                    metadata={},
+                )
+            )
+            store.append_event(
+                Event(
+                    timestamp="2026-03-25T01:00:00+08:00",
+                    level="ERROR",
+                    event_type="mid_error",
+                    channel_id="alice",
+                    message="mid error",
+                    metadata={},
+                )
+            )
+            store.append_event(
+                Event(
+                    timestamp="2026-03-20T02:00:00+08:00",
+                    level="ERROR",
+                    event_type="old_error",
+                    channel_id="alice",
+                    message="old error",
+                    metadata={},
+                )
+            )
+            store.append_event(
+                Event(
+                    timestamp="2026-04-06T01:00:00+08:00",
+                    level="INFO",
+                    event_type="recent_info",
+                    channel_id="alice",
+                    message="recent info",
+                    metadata={},
+                )
+            )
+
+            store.append_session_event(
+                SessionEvent(
+                    session_id="sess-old-completed",
+                    timestamp="2026-03-20T01:10:00+08:00",
+                    phase=RecordingSessionPhase.QUEUED,
+                    level="INFO",
+                    event_type="old_session_info",
+                    message="old session info",
+                    failure_category=None,
+                    metadata={},
+                )
+            )
+            store.append_session_event(
+                SessionEvent(
+                    session_id="sess-active",
+                    timestamp="2026-03-25T01:10:00+08:00",
+                    phase=RecordingSessionPhase.RECORDING,
+                    level="ERROR",
+                    event_type="mid_session_error",
+                    message="mid session error",
+                    failure_category=FailureCategory.UNKNOWN,
+                    metadata={},
+                )
+            )
+            store.append_session_event(
+                SessionEvent(
+                    session_id="sess-active",
+                    timestamp="2026-03-20T01:20:00+08:00",
+                    phase=RecordingSessionPhase.RECORDING,
+                    level="ERROR",
+                    event_type="old_session_error",
+                    message="old session error",
+                    failure_category=FailureCategory.UNKNOWN,
+                    metadata={},
+                )
+            )
+            store.append_session_event(
+                SessionEvent(
+                    session_id="sess-recent-completed",
+                    timestamp="2026-04-06T01:10:00+08:00",
+                    phase=RecordingSessionPhase.FINALIZING,
+                    level="INFO",
+                    event_type="recent_session_info",
+                    message="recent session info",
+                    failure_category=None,
+                    metadata={},
+                )
+            )
+
+            summary = store.prune_retained_history(now=datetime(2026, 4, 7, 12, 0, tzinfo=self.TZ))
+
+            self.assertEqual(summary["deleted_total"], 5)
+            self.assertEqual(summary["deleted_event_logs"], 2)
+            self.assertEqual(summary["deleted_session_logs"], 2)
+            self.assertEqual(summary["deleted_sessions"], 1)
+            self.assertTrue(summary["vacuumed"])
+
+            remaining_events = {item["event_type"] for item in store.read_events(limit=20)}
+            self.assertEqual(remaining_events, {"mid_error", "recent_info"})
+
+            remaining_session_events = {item.event_type for item in store.read_session_events(limit=20)}
+            self.assertEqual(remaining_session_events, {"mid_session_error", "recent_session_info"})
+
+            remaining_sessions = {item.id for item in store.list_sessions(limit=20)}
+            self.assertEqual(remaining_sessions, {"sess-recent-completed", "sess-active"})
+            with self.assertRaises(KeyError):
+                store.get_resolved_source("src-old")
 
 
 if __name__ == "__main__":

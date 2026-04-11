@@ -3,10 +3,11 @@ from __future__ import annotations
 import json
 import sqlite3
 from contextlib import contextmanager
+from datetime import datetime, timedelta
 from pathlib import Path
 from threading import RLock
 
-from ..common import utc_now_iso
+from ..common import utc_now, utc_now_iso
 from ..core import CHANNELS_PATH, CONFIG_PATH, EVENT_DB_PATH, LEGACY_LOG_PATH
 from ..domain import (
     AppConfig,
@@ -38,6 +39,10 @@ from .sqlite_schema import (
 
 
 class SQLiteStore:
+    LOG_RETENTION_DAYS = 3
+    ERROR_LOG_RETENTION_DAYS = 14
+    FINISHED_SESSION_RETENTION_DAYS = 3
+
     def __init__(
         self,
         *,
@@ -262,6 +267,38 @@ class SQLiteStore:
             with self._connect() as connection:
                 row = connection.execute(query, values).fetchone()
         return int(row["count"]) if row else 0
+
+    def prune_retained_history(self, *, now: datetime | None = None) -> dict[str, object]:
+        with self._lock:
+            self._ensure_ready_unlocked()
+            reference_time = now or utc_now()
+            log_cutoff = (reference_time - timedelta(days=self.LOG_RETENTION_DAYS)).isoformat()
+            error_cutoff = (reference_time - timedelta(days=self.ERROR_LOG_RETENTION_DAYS)).isoformat()
+            session_cutoff = (reference_time - timedelta(days=self.FINISHED_SESSION_RETENTION_DAYS)).isoformat()
+
+            with self._connect() as connection:
+                connection.execute("BEGIN IMMEDIATE")
+                deleted_event_logs = self._delete_event_logs_unlocked(connection, log_cutoff, error_cutoff)
+                deleted_session_logs = self._delete_session_event_logs_unlocked(connection, log_cutoff, error_cutoff)
+                deleted_sessions = self._delete_finished_sessions_unlocked(connection, session_cutoff)
+
+            deleted_total = deleted_event_logs + deleted_session_logs + deleted_sessions
+            vacuumed = False
+            if deleted_total > 0:
+                with self._connect() as connection:
+                    connection.execute("VACUUM")
+                vacuumed = True
+
+        return {
+            "deleted_event_logs": deleted_event_logs,
+            "deleted_session_logs": deleted_session_logs,
+            "deleted_sessions": deleted_sessions,
+            "deleted_total": deleted_total,
+            "vacuumed": vacuumed,
+            "log_cutoff": log_cutoff,
+            "error_cutoff": error_cutoff,
+            "session_cutoff": session_cutoff,
+        }
 
     def create_session(self, session: RecordingSession) -> RecordingSession:
         with self._lock:
@@ -665,6 +702,60 @@ class SQLiteStore:
             """,
             rows,
         )
+
+    def _delete_event_logs_unlocked(self, connection: sqlite3.Connection, log_cutoff: str, error_cutoff: str) -> int:
+        deleted_info = connection.execute(
+            """
+            DELETE FROM events
+            WHERE datetime(timestamp) < datetime(?)
+              AND COALESCE(UPPER(level), '') <> 'ERROR'
+            """,
+            (log_cutoff,),
+        ).rowcount
+        deleted_errors = connection.execute(
+            """
+            DELETE FROM events
+            WHERE datetime(timestamp) < datetime(?)
+              AND COALESCE(UPPER(level), '') = 'ERROR'
+            """,
+            (error_cutoff,),
+        ).rowcount
+        return max(deleted_info, 0) + max(deleted_errors, 0)
+
+    def _delete_session_event_logs_unlocked(
+        self,
+        connection: sqlite3.Connection,
+        log_cutoff: str,
+        error_cutoff: str,
+    ) -> int:
+        deleted_info = connection.execute(
+            """
+            DELETE FROM session_events
+            WHERE datetime(timestamp) < datetime(?)
+              AND COALESCE(UPPER(level), '') <> 'ERROR'
+            """,
+            (log_cutoff,),
+        ).rowcount
+        deleted_errors = connection.execute(
+            """
+            DELETE FROM session_events
+            WHERE datetime(timestamp) < datetime(?)
+              AND COALESCE(UPPER(level), '') = 'ERROR'
+            """,
+            (error_cutoff,),
+        ).rowcount
+        return max(deleted_info, 0) + max(deleted_errors, 0)
+
+    def _delete_finished_sessions_unlocked(self, connection: sqlite3.Connection, session_cutoff: str) -> int:
+        deleted_sessions = connection.execute(
+            """
+            DELETE FROM recording_sessions
+            WHERE status IN ('completed', 'failed', 'aborted')
+              AND datetime(COALESCE(ended_at, updated_at, created_at)) < datetime(?)
+            """,
+            (session_cutoff,),
+        ).rowcount
+        return max(deleted_sessions, 0)
 
     def _row_to_event_dict(self, row: sqlite3.Row) -> dict:
         payload = dict(row)
