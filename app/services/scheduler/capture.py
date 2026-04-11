@@ -13,6 +13,16 @@ from ..session_core import FailureCategory, RecordingPhase, ResolvedSource, clas
 
 
 class SchedulerCaptureMixin:
+    def _resolve_capture_artifact(self, source_path: Path) -> Path | None:
+        candidates = [source_path, source_path.with_name(f"{source_path.name}.part")]
+        for candidate in candidates:
+            try:
+                if candidate.exists() and candidate.stat().st_size > 0:
+                    return candidate
+            except FileNotFoundError:
+                continue
+        return None
+
     def _session_registry(self):
         return getattr(self, "sessions", None)
 
@@ -348,9 +358,10 @@ class SchedulerCaptureMixin:
         )
 
         if channel.paused and return_code != 0:
-            if source_path.exists() and source_path.stat().st_size > 0:
+            artifact_path = self._resolve_capture_artifact(source_path)
+            if artifact_path is not None:
                 self.store.log_info("recording_completed", "Recording stopped, starting conversion", channel_id)
-                self._convert_recording(channel_id, source_path, mp4_path)
+                self._convert_recording(channel_id, artifact_path, mp4_path)
             else:
                 self.store.log_info("recording_stopped", "Recording stopped", channel_id)
             return
@@ -431,24 +442,32 @@ class SchedulerCaptureMixin:
                 )
                 return
             if self._is_expected_unavailable(failure.message):
+                artifact_path = self._resolve_capture_artifact(source_path)
                 self.channel_service.update_status(
                     channel_id,
                     status=Status.PAUSED if channel.paused else Status.IDLE,
                     active_pid=None,
                     last_error=None,
                 )
+                if artifact_path is not None:
+                    self.store.log_info("recording_completed", "Recording interrupted, salvaging partial file", channel_id)
+                    self._convert_recording(channel_id, artifact_path, mp4_path)
                 self.store.log_info(
                     "stream_unavailable",
                     failure.message,
                     channel_id,
                 )
                 return
+            artifact_path = self._resolve_capture_artifact(source_path)
             self.channel_service.update_status(
                 channel_id,
                 status=Status.ERROR,
                 active_pid=None,
                 last_error=failure.message,
             )
+            if artifact_path is not None:
+                self.store.log_info("recording_completed", "Recording failed, salvaging partial file", channel_id)
+                self._convert_recording(channel_id, artifact_path, mp4_path)
             self.store.log_error(
                 failure.error_code.value,
                 failure.message,
@@ -542,17 +561,18 @@ class SchedulerCaptureMixin:
             session.active_pid = None
 
         if channel.paused and return_code != 0:
-            if source_path.exists() and source_path.stat().st_size > 0:
+            artifact_path = self._resolve_capture_artifact(source_path)
+            if artifact_path is not None:
                 self._transition_session(
                     session,
                     RecordingPhase.CONVERTING,
                     "Recording stopped, starting conversion",
                     event_type="recording_session_converting",
-                    source_path=str(source_path),
+                    source_path=str(artifact_path),
                     target_path=str(mp4_path),
                 )
-                self._convert_recording(channel_id, source_path, mp4_path)
-                self._complete_session(session, message="Recording stopped and converted", outcome="aborted", source_path=str(source_path), target_path=str(mp4_path))
+                self._convert_recording(channel_id, artifact_path, mp4_path)
+                self._complete_session(session, message="Recording stopped and converted", outcome="aborted", source_path=str(artifact_path), target_path=str(mp4_path))
             else:
                 self._complete_session(session, message="Recording stopped", outcome="aborted", source_path=str(source_path))
             return
@@ -594,6 +614,7 @@ class SchedulerCaptureMixin:
                     )
                     return
             if category == FailureCategory.PLATFORM_UNAVAILABLE:
+                artifact_path = self._resolve_capture_artifact(source_path)
                 self.channel_service.update_status(
                     channel_id,
                     status=Status.PAUSED if channel.paused else Status.IDLE,
@@ -605,8 +626,28 @@ class SchedulerCaptureMixin:
                         failure_backoff_seconds(category.value),
                     ),
                 )
-                self._complete_session(session, message=failure.message, outcome="aborted", failure_category=category.value, raw_output=failure.raw_output, return_code=failure.return_code)
+                if artifact_path is not None:
+                    self._transition_session(
+                        session,
+                        RecordingPhase.CONVERTING,
+                        "Recording interrupted, salvaging partial file",
+                        event_type="recording_session_converting",
+                        source_path=str(artifact_path),
+                        target_path=str(mp4_path),
+                    )
+                    self._convert_recording(channel_id, artifact_path, mp4_path)
+                self._complete_session(
+                    session,
+                    message=failure.message,
+                    outcome="aborted",
+                    failure_category=category.value,
+                    raw_output=failure.raw_output,
+                    return_code=failure.return_code,
+                    source_path=str(artifact_path) if artifact_path is not None else str(source_path),
+                    target_path=str(mp4_path) if artifact_path is not None else None,
+                )
                 return
+            artifact_path = self._resolve_capture_artifact(source_path)
             self.channel_service.update_status(
                 channel_id,
                 status=Status.ERROR,
@@ -618,6 +659,16 @@ class SchedulerCaptureMixin:
                     failure_backoff_seconds(category.value),
                 ),
             )
+            if artifact_path is not None:
+                self._transition_session(
+                    session,
+                    RecordingPhase.CONVERTING,
+                    "Recording failed, salvaging partial file",
+                    event_type="recording_session_converting",
+                    source_path=str(artifact_path),
+                    target_path=str(mp4_path),
+                )
+                self._convert_recording(channel_id, artifact_path, mp4_path)
             self._fail_session(
                 session,
                 phase=RecordingPhase.RECORDING,
@@ -625,6 +676,8 @@ class SchedulerCaptureMixin:
                 message=failure.message,
                 raw_output=failure.raw_output,
                 return_code=failure.return_code,
+                source_path=str(artifact_path) if artifact_path is not None else str(source_path),
+                target_path=str(mp4_path) if artifact_path is not None else None,
             )
             return
 

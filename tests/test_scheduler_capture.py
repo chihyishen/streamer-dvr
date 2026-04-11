@@ -8,7 +8,7 @@ from tempfile import TemporaryDirectory
 from unittest.mock import MagicMock, patch
 
 from app.domain import AppConfig, Channel, ErrorCode, Platform, Status
-from app.services.session_core import FailureCategory
+from app.services.session_core import FailureCategory, RecordingPhase
 from app.services.scheduler.capture import SchedulerCaptureMixin
 
 
@@ -397,6 +397,61 @@ class SchedulerCaptureTests(unittest.TestCase):
             "Streamer unavailable (private show)",
             self.channel.id,
         )
+
+    def test_wait_for_recording_session_salvages_partial_artifact_on_failure(self) -> None:
+        scheduler = _SchedulerUnderTest()
+        scheduler._active_processes[self.channel.id] = object()
+        scheduler.channel_service.get_channel.return_value = self.channel
+        scheduler.recorder.should_refresh_stream_source.return_value = False
+        scheduler.recorder.platforms.get.return_value.map_recording_failure.return_value = MagicMock(
+            message="Stream source unstable (playlist parse failed)",
+            error_code=ErrorCode.PLAYLIST_PARSE_FAILED,
+            raw_output="parse failed",
+            return_code=1,
+        )
+        scheduler._transition_session = MagicMock()
+        scheduler._fail_session = MagicMock()
+        scheduler._convert_recording = MagicMock()
+
+        process = MagicMock()
+        process.stderr = io.StringIO("ERROR: #EXTM3U absent")
+        process.wait.return_value = 1
+
+        session = MagicMock(id="sess-1", active_pid=1234)
+        resolved_source = MagicMock(room_status="public")
+
+        with TemporaryDirectory() as tmpdir:
+            source_path = Path(tmpdir) / "capture.mkv"
+            partial_path = Path(tmpdir) / "capture.mkv.part"
+            partial_path.write_bytes(b"partial-media")
+            mp4_path = Path(tmpdir) / "capture.mp4"
+            scheduler._wait_for_recording_session(
+                self.channel.id,
+                process,
+                source_path,
+                mp4_path,
+                0,
+                session=session,
+                resolved_source=resolved_source,
+            )
+
+        scheduler._transition_session.assert_called_once_with(
+            session,
+            RecordingPhase.CONVERTING,
+            "Recording failed, salvaging partial file",
+            event_type="recording_session_converting",
+            source_path=str(partial_path),
+            target_path=str(mp4_path),
+        )
+        scheduler._convert_recording.assert_called_once_with(
+            self.channel.id,
+            partial_path,
+            mp4_path,
+        )
+        scheduler._fail_session.assert_called_once()
+        fail_kwargs = scheduler._fail_session.call_args.kwargs
+        self.assertEqual(fail_kwargs["source_path"], str(partial_path))
+        self.assertEqual(fail_kwargs["target_path"], str(mp4_path))
 
 
 if __name__ == "__main__":

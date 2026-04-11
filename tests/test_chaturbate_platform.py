@@ -178,7 +178,7 @@ class ChaturbatePlatformTests(unittest.TestCase):
         self.assertEqual(result.message, "Streamer unavailable (room not found)")
         self.assertIsNone(result.error_code)
 
-    def test_build_record_command_uses_ffmpeg_and_consistent_headers(self) -> None:
+    def test_build_record_command_uses_yt_dlp_defaults_and_consistent_headers(self) -> None:
         self.assertFalse(self.platform.record_uses_resolved_source())
         with tempfile.TemporaryDirectory() as tmpdir:
             cookie_path = Path(tmpdir) / "streamer_cookies.txt"
@@ -203,7 +203,9 @@ class ChaturbatePlatformTests(unittest.TestCase):
         self.assertNotIn("--live-from-start", command)
         self.assertIn("--merge-output-format", command)
         self.assertIn("mkv", command)
-        self.assertIn("--hls-use-mpegts", command)
+        self.assertNotIn("--hls-use-mpegts", command)
+        self.assertNotIn("--downloader", command)
+        self.assertNotIn("--downloader-args", command)
         self.assertIn("Origin: https://chaturbate.com", command)
         self.assertIn("Referer: https://chaturbate.com/sugarpoppyxo/", command)
 
