@@ -12,16 +12,6 @@ from ..session_core import FailureCategory, RecordingPhase
 
 
 class SchedulerRecoveryMixin:
-    def _resolve_recording_artifact_path(self, source_path: Path | None) -> Path | None:
-        if source_path is None:
-            return None
-        if source_path.exists():
-            return source_path
-        partial_path = source_path.with_name(f"{source_path.name}.part")
-        if partial_path.exists():
-            return partial_path
-        return source_path
-
     def _pid_exists(self, pid: int) -> bool:
         try:
             os.kill(pid, 0)
@@ -73,8 +63,8 @@ class SchedulerRecoveryMixin:
             return False
         if not channel.last_recorded_file:
             return True
-        source_path = self._resolve_recording_artifact_path(Path(channel.last_recorded_file))
-        if source_path is None or not source_path.exists():
+        source_path = self._resolve_capture_artifact(Path(channel.last_recorded_file))
+        if source_path is None:
             return True
         try:
             modified_age = time.time() - source_path.stat().st_mtime
@@ -86,9 +76,7 @@ class SchedulerRecoveryMixin:
         pid = channel.active_pid
         if not pid:
             return
-        session = None
-        if getattr(self, "sessions", None) is not None:
-            session = self.sessions.get(channel.id)
+        session = self.sessions.get(channel.id)
         if self._pid_exists(pid):
             try:
                 os.kill(pid, signal.SIGTERM)
@@ -112,22 +100,20 @@ class SchedulerRecoveryMixin:
             )
 
     def _recover_stale_recording(self, channel) -> None:
-        session = None
-        if getattr(self, "sessions", None) is not None:
-            session = self.sessions.get(channel.id) or self.sessions.open(
-                channel.id,
-                trigger="recovery",
-                metadata={"reason": "stale_recording"},
-            )
-            self.sessions.transition(
-                session,
-                RecordingPhase.RECOVERING,
-                "Recovering stale recording",
-                event_type="recording_session_recovering",
-            )
-        source_path = self._resolve_recording_artifact_path(
-            Path(channel.last_recorded_file) if channel.last_recorded_file else None
+        session = self.sessions.get(channel.id) or self.sessions.open(
+            channel.id,
+            trigger="recovery",
+            metadata={"reason": "stale_recording"},
         )
+        self.sessions.transition(
+            session,
+            RecordingPhase.RECOVERING,
+            "Recovering stale recording",
+            event_type="recording_session_recovering",
+        )
+        source_path = None
+        if channel.last_recorded_file:
+            source_path = self._resolve_capture_artifact(Path(channel.last_recorded_file))
         config = self.store.load_config()
         mp4_path = None
         recording_stem = None
@@ -146,13 +132,12 @@ class SchedulerRecoveryMixin:
                 last_error=None,
                 next_check_at=None if channel.paused else compute_next_check_at(channel.id, channel.poll_interval_seconds),
             )
-            if session is not None:
-                self.sessions.complete(
-                    session,
-                    message="Recovered stale recording state from converted file",
-                    outcome="completed",
-                    output=str(mp4_path),
-                )
+            self.sessions.complete(
+                session,
+                message="Recovered stale recording state from converted file",
+                outcome="completed",
+                output=str(mp4_path),
+            )
             self.store.log_info(
                 "recording_recovered",
                 "Recovered stale recording state from converted file",
@@ -169,24 +154,22 @@ class SchedulerRecoveryMixin:
                 output=str(mp4_path),
             )
             self._convert_recording(channel.id, source_path, mp4_path)
-            if session is not None:
-                self.sessions.complete(
-                    session,
-                    message="Recovered stale recording by conversion",
-                    outcome="completed",
-                    source=str(source_path),
-                    output=str(mp4_path),
-                )
+            self.sessions.complete(
+                session,
+                message="Recovered stale recording by conversion",
+                outcome="completed",
+                source=str(source_path),
+                output=str(mp4_path),
+            )
             return
         next_status = Status.PAUSED if channel.paused else Status.IDLE
         self.channel_service.update_status(channel.id, status=next_status, active_pid=None)
-        if session is not None:
-            self.sessions.complete(
-                session,
-                message="Recovered stale recording state",
-                outcome="aborted",
-                source=str(source_path) if source_path else None,
-            )
+        self.sessions.complete(
+            session,
+            message="Recovered stale recording state",
+            outcome="aborted",
+            source=str(source_path) if source_path else None,
+        )
 
     def _is_due(self, next_check_at: str | None) -> bool:
         if not next_check_at:

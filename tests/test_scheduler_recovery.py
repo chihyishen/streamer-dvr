@@ -10,15 +10,17 @@ from tempfile import TemporaryDirectory
 from unittest.mock import MagicMock, patch
 
 from app.domain import Channel, Platform, Status
+from app.services.scheduler.capture import SchedulerCaptureMixin
 from app.services.scheduler.recovery import SchedulerRecoveryMixin
 
 
-class _SchedulerUnderTest(SchedulerRecoveryMixin):
+class _SchedulerUnderTest(SchedulerRecoveryMixin, SchedulerCaptureMixin):
     STALLED_RECORDING_SECONDS = 180
 
     def __init__(self) -> None:
         self.store = MagicMock()
         self.channel_service = MagicMock()
+        self.sessions = MagicMock()
         self._record_lock = threading.RLock()
         self._convert_recording = MagicMock()
 
@@ -52,6 +54,8 @@ class SchedulerRecoveryTests(unittest.TestCase):
     def test_recover_stale_recording_converts_part_file(self) -> None:
         scheduler = _SchedulerUnderTest()
         scheduler.store.load_config.return_value.organized_dir = "/organized"
+        scheduler.sessions.get.return_value = None
+        scheduler.sessions.open.return_value = MagicMock(id="sess-1")
         with TemporaryDirectory() as tmpdir:
             source_path = Path(tmpdir) / "capture.mkv"
             part_path = Path(f"{source_path}.part")
@@ -68,3 +72,7 @@ class SchedulerRecoveryTests(unittest.TestCase):
             part_path,
             Path("/organized") / self.channel.username / "capture.mp4",
         )
+
+
+if __name__ == "__main__":
+    unittest.main()

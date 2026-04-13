@@ -14,7 +14,7 @@ class RecorderPathMixin:
         if channel.max_framerate:
             filters.append(f"fps<={channel.max_framerate}")
         suffix = f"[{' and '.join(filters)}]" if filters else ""
-        return f"bestvideo{suffix}+bestaudio/best{suffix}/best"
+        return f"best{suffix}/bestvideo{suffix}+bestaudio/best"
 
     def build_record_command(self, channel: Channel, config: AppConfig, output_path: Path, source_url: str) -> list[str]:
         adapter = self.platforms.get(channel.platform)
@@ -40,7 +40,7 @@ class RecorderPathMixin:
 
     def build_convert_command(self, source: Path, target: Path) -> list[str]:
         ffmpeg = self._ensure_dependency("ffmpeg", self.store.load_config().ffmpeg_path)
-        return [ffmpeg, "-i", str(source), "-c", "copy", "-movflags", "faststart", str(target), "-y"]
+        return [ffmpeg, "-fflags", "+genpts", "-i", str(source), "-c", "copy", "-shortest", "-movflags", "faststart", str(target), "-y"]
 
     def compute_paths(self, channel: Channel, config: AppConfig) -> tuple[Path, Path]:
         started_at = utc_now().strftime("%Y-%m-%d_%H-%M-%S")

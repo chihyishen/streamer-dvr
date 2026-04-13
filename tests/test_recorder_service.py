@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import unittest
+from pathlib import Path
 from unittest.mock import MagicMock
 
 from app.domain import AppConfig, Channel, Platform
@@ -40,6 +41,27 @@ class RecorderServiceTests(unittest.TestCase):
         self.assertEqual(resolved.stream_url, "https://edge.example/live.m3u8")
         self.service.resolve_stream_source.assert_called_once()
 
+    def test_build_record_command_prefers_muxed_stream_before_split_streams(self) -> None:
+        adapter = MagicMock()
+        adapter.build_record_command.return_value = ["yt-dlp", "https://example.com"]
+        self.platforms.get.return_value = adapter
+
+        command = self.service.build_record_command(
+            self.channel,
+            self.config,
+            Path("/tmp/capture.mkv"),
+            "https://chaturbate.com/alice",
+        )
+
+        self.assertEqual(command, ["yt-dlp", "https://example.com"])
+        adapter.build_record_command.assert_called_once_with(
+            channel=self.channel,
+            config=self.config,
+            output_path=Path("/tmp/capture.mkv"),
+            source_url="https://chaturbate.com/alice",
+            ensure_dependency=self.service._ensure_dependency,
+            format_selector="best/bestvideo+bestaudio/best",
+        )
 
 if __name__ == "__main__":
     unittest.main()
