@@ -39,8 +39,18 @@ class RecorderPathMixin:
         )
 
     def build_convert_command(self, source: Path, target: Path) -> list[str]:
-        ffmpeg = self._ensure_dependency("ffmpeg", self.store.load_config().ffmpeg_path)
-        return [ffmpeg, "-fflags", "+genpts", "-i", str(source), "-c", "copy", "-shortest", "-movflags", "faststart", str(target), "-y"]
+        config = self.store.load_config()
+        ffmpeg = self._ensure_dependency("ffmpeg", config.ffmpeg_path)
+        return [
+            ffmpeg, "-fflags", "+genpts",
+            "-i", str(source),
+            "-c:v", "copy",
+            "-af", "aresample=async=1",
+            "-c:a", "aac", "-b:a", "128k",
+            "-shortest",
+            "-movflags", "faststart",
+            str(target), "-y",
+        ]
 
     def compute_paths(self, channel: Channel, config: AppConfig) -> tuple[Path, Path]:
         started_at = utc_now().strftime("%Y-%m-%d_%H-%M-%S")

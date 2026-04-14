@@ -63,5 +63,28 @@ class RecorderServiceTests(unittest.TestCase):
             format_selector="best/bestvideo+bestaudio/best",
         )
 
+    def test_build_convert_command_uses_async_audio_resample_and_aac_output(self) -> None:
+        self.service._ensure_dependency = MagicMock(return_value="ffmpeg")
+
+        command = self.service.build_convert_command(
+            Path("/tmp/capture.mkv"),
+            Path("/tmp/capture.mp4"),
+        )
+
+        self.assertEqual(
+            command,
+            [
+                "ffmpeg", "-fflags", "+genpts",
+                "-i", "/tmp/capture.mkv",
+                "-c:v", "copy",
+                "-af", "aresample=async=1",
+                "-c:a", "aac", "-b:a", "128k",
+                "-shortest",
+                "-movflags", "faststart",
+                "/tmp/capture.mp4", "-y",
+            ],
+        )
+        self.service._ensure_dependency.assert_called_once_with("ffmpeg", self.config.ffmpeg_path)
+
 if __name__ == "__main__":
     unittest.main()
