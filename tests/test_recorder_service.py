@@ -24,8 +24,8 @@ class RecorderServiceTests(unittest.TestCase):
             created_at=1,
         )
 
-    def test_acquire_resolved_source_for_room_page_platform_uses_single_api_check(self) -> None:
-        self.platforms.get.return_value.record_uses_resolved_source.return_value = False
+    def test_acquire_resolved_source_for_direct_source_platform_uses_single_api_check(self) -> None:
+        self.platforms.get.return_value.record_uses_resolved_source.return_value = True
         self.service.resolve_stream_source = MagicMock(return_value=MagicMock(
             stream_url="https://edge.example/live.m3u8",
             message="Streamer is live",

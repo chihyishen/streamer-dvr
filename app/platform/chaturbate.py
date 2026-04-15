@@ -103,7 +103,7 @@ class ChaturbatePlatform(PlatformAdapter):
         return (url or f"https://chaturbate.com/{username}").strip()
 
     def record_uses_resolved_source(self) -> bool:
-        return False
+        return True
 
     def validate_username(self, username: str) -> None:
         if not self.USERNAME_PATTERN.fullmatch(username):

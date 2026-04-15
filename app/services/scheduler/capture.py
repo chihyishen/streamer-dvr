@@ -129,6 +129,7 @@ class SchedulerCaptureMixin:
                 record_target = channel.url
                 command = self.recorder.build_record_command(channel, config, source_path, record_target)
             process = subprocess.Popen(command, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE, text=True)
+
             self._active_processes[channel_id] = process
             self.channel_service.update_status(
                 channel_id,

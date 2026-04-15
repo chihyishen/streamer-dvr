@@ -179,7 +179,7 @@ class ChaturbatePlatformTests(unittest.TestCase):
         self.assertIsNone(result.error_code)
 
     def test_build_record_command_uses_yt_dlp_defaults_and_consistent_headers(self) -> None:
-        self.assertFalse(self.platform.record_uses_resolved_source())
+        self.assertTrue(self.platform.record_uses_resolved_source())
         with tempfile.TemporaryDirectory() as tmpdir:
             cookie_path = Path(tmpdir) / "streamer_cookies.txt"
             cookie_path.write_text(

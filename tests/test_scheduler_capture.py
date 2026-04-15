@@ -32,13 +32,13 @@ class SchedulerCaptureTests(unittest.TestCase):
             created_at=1,
         )
 
-    def test_start_recording_uses_channel_url_when_platform_prefers_room_page(self) -> None:
+    def test_start_recording_uses_resolved_source_when_platform_prefers_direct_source(self) -> None:
         scheduler = _SchedulerUnderTest()
         scheduler.channel_service.get_channel.return_value = self.channel
         scheduler.store.load_config.return_value = AppConfig()
         scheduler.recorder.compute_paths.return_value = (Path("/tmp/capture.mkv"), Path("/tmp/capture.mp4"))
-        scheduler.recorder.platforms.get.return_value.record_uses_resolved_source.return_value = False
-        scheduler.recorder.build_record_command.return_value = ["yt-dlp", "https://chaturbate.com/alice"]
+        scheduler.recorder.platforms.get.return_value.record_uses_resolved_source.return_value = True
+        scheduler.recorder.build_resolved_record_command.return_value = ["ffmpeg", "https://edge.example/live.m3u8"]
 
         resolved_source = MagicMock(stream_url="https://edge.example/live.m3u8", room_status="public")
         session = MagicMock(id="sess-1")
@@ -46,53 +46,61 @@ class SchedulerCaptureTests(unittest.TestCase):
         process.pid = 1234
         thread_mock = MagicMock()
 
-        with patch("subprocess.Popen", return_value=process), patch("threading.Thread", return_value=thread_mock):
+        with patch("subprocess.Popen", return_value=process), patch("threading.Thread", return_value=thread_mock) as thread_ctor:
             scheduler._start_recording(
                 self.channel.id,
                 session=session,
                 resolved_source=resolved_source,
             )
 
-        scheduler.recorder.build_record_command.assert_called_once_with(
+        scheduler.recorder.build_resolved_record_command.assert_called_once_with(
             self.channel,
             scheduler.store.load_config.return_value,
             Path("/tmp/capture.mkv"),
-            "https://chaturbate.com/alice",
+            "https://edge.example/live.m3u8",
         )
-        scheduler.recorder.build_resolved_record_command.assert_not_called()
+        scheduler.recorder.build_record_command.assert_not_called()
         scheduler.sessions.transition.assert_called_once()
         transition_kwargs = scheduler.sessions.transition.call_args.kwargs
-        self.assertEqual(transition_kwargs["source_url"], "https://chaturbate.com/alice")
+        self.assertEqual(transition_kwargs["source_url"], "https://edge.example/live.m3u8")
+        self.assertEqual(thread_ctor.call_count, 1)
         thread_mock.start.assert_called_once()
 
-    def test_start_recording_uses_channel_url_without_source_resolution_for_room_page_platform(self) -> None:
+    def test_start_recording_acquires_resolved_source_for_direct_source_platform(self) -> None:
         scheduler = _SchedulerUnderTest()
         scheduler.channel_service.get_channel.return_value = self.channel
         scheduler.store.load_config.return_value = AppConfig()
         scheduler.recorder.compute_paths.return_value = (Path("/tmp/capture.mkv"), Path("/tmp/capture.mp4"))
-        scheduler.recorder.platforms.get.return_value.record_uses_resolved_source.return_value = False
-        scheduler.recorder.build_record_command.return_value = ["yt-dlp", "https://chaturbate.com/alice"]
+        scheduler.recorder.platforms.get.return_value.record_uses_resolved_source.return_value = True
+        scheduler.recorder.build_resolved_record_command.return_value = ["ffmpeg", "https://edge.example/live.m3u8"]
+        scheduler.recorder.acquire_resolved_source.return_value = MagicMock(
+            stream_url="https://edge.example/live.m3u8",
+            room_status="public",
+        )
 
         session = MagicMock(id="sess-1")
         process = MagicMock()
         process.pid = 1234
         thread_mock = MagicMock()
 
-        with patch("subprocess.Popen", return_value=process), patch("threading.Thread", return_value=thread_mock):
+        with patch("subprocess.Popen", return_value=process), patch("threading.Thread", return_value=thread_mock) as thread_ctor:
             scheduler._start_recording(
                 self.channel.id,
                 session=session,
             )
 
-        scheduler.recorder.build_record_command.assert_called_once_with(
+        scheduler.recorder.acquire_resolved_source.assert_called_once()
+        scheduler.recorder.build_resolved_record_command.assert_called_once_with(
             self.channel,
             scheduler.store.load_config.return_value,
             Path("/tmp/capture.mkv"),
-            "https://chaturbate.com/alice",
+            "https://edge.example/live.m3u8",
         )
-        self.assertEqual(scheduler.sessions.transition.call_count, 1)
+        scheduler.recorder.build_record_command.assert_not_called()
+        self.assertEqual(scheduler.sessions.transition.call_count, 2)
         transition_kwargs = scheduler.sessions.transition.call_args.kwargs
-        self.assertEqual(transition_kwargs["source_url"], "https://chaturbate.com/alice")
+        self.assertEqual(transition_kwargs["source_url"], "https://edge.example/live.m3u8")
+        self.assertEqual(thread_ctor.call_count, 1)
         thread_mock.start.assert_called_once()
 
     def test_wait_for_recording_salvages_partial_artifact_on_failure(self) -> None:
