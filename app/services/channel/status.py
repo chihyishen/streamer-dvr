@@ -17,6 +17,7 @@ class ChannelStatusMixin:
         active_pid: int | None | object = ...,
         last_recorded_file: str | None | object = ...,
         last_recorded_at: str | None | object = ...,
+        last_recording_duration_seconds: int | None | object = ...,
     ) -> Channel:
         def mutate(channels: list[Channel]) -> Channel:
             for index, channel in enumerate(channels):
@@ -37,6 +38,8 @@ class ChannelStatusMixin:
                     updates["last_recorded_file"] = last_recorded_file
                 if last_recorded_at is not ...:
                     updates["last_recorded_at"] = last_recorded_at
+                if last_recording_duration_seconds is not ...:
+                    updates["last_recording_duration_seconds"] = last_recording_duration_seconds
                 updated = channel.model_copy(update=updates)
                 channels[index] = updated
                 return updated

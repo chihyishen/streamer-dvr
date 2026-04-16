@@ -16,6 +16,8 @@ export interface Channel {
   last_online_at: string | null;
   last_recorded_file: string | null;
   last_recorded_at: string | null;
+  last_recording_duration_seconds: number | null;
+  last_recording_duration_display: string;
   last_error: string | null;
   active_pid: number | null;
   status: string;
@@ -43,6 +45,8 @@ export interface AppConfig {
   ffmpeg_path: string;
   delete_source_after_convert: boolean;
   keep_failed_source: boolean;
+  convert_timeout_seconds: number;
+  force_audio_reencode: boolean;
 }
 
 export interface SessionSummary {

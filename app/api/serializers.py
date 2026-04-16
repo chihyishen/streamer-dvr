@@ -314,6 +314,18 @@ def build_session_overview(sessions: list[dict[str, Any]], recent_session_limit:
     }
 
 
+def _format_duration(seconds: int | None) -> str:
+    if seconds is None:
+        return "-"
+    hours, remainder = divmod(seconds, 3600)
+    minutes, secs = divmod(remainder, 60)
+    if hours > 0:
+        return f"{hours}h {minutes:02d}m {secs:02d}s"
+    if minutes > 0:
+        return f"{minutes}m {secs:02d}s"
+    return f"{secs}s"
+
+
 def serialize_channel(channel: Any) -> dict:
     data = _payload_dict(channel)
     status_val = data.get("status", "idle")
@@ -323,6 +335,7 @@ def serialize_channel(channel: Any) -> dict:
     data["last_checked_display"] = format_display_time(data.get("last_checked_at"))
     data["last_online_display"] = format_display_time(data.get("last_online_at"))
     data["last_recorded_display"] = format_display_time(data.get("last_recorded_at"))
+    data["last_recording_duration_display"] = _format_duration(data.get("last_recording_duration_seconds"))
     return data
 
 

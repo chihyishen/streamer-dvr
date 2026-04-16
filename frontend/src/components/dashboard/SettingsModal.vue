@@ -25,11 +25,13 @@
         <div><label class="field-label">Max Concurrent Probes</label><input class="text-input" v-model.number="draft.max_concurrent_probes" type="number" /></div>
         <div><label class="field-label">Probe Rate Limit Seconds</label><input class="text-input" v-model.number="draft.probe_rate_limit_seconds" type="number" /></div>
         <div><label class="field-label">Probe Timeout Seconds</label><input class="text-input" v-model.number="draft.probe_timeout_seconds" type="number" /></div>
+        <div><label class="field-label">Convert Timeout Seconds</label><input class="text-input" v-model.number="draft.convert_timeout_seconds" type="number" /></div>
         <div class="full-span"><label class="field-label">yt-dlp Path</label><input class="text-input" v-model="draft.yt_dlp_path" /></div>
         <div class="full-span"><label class="field-label">ffmpeg Path</label><input class="text-input" v-model="draft.ffmpeg_path" /></div>
         <div class="full-span checkbox-row">
           <label><input v-model="draft.delete_source_after_convert" type="checkbox" /> Delete Source File After Convert</label>
           <label><input v-model="draft.keep_failed_source" type="checkbox" /> Keep Failed Source Files</label>
+          <label><input v-model="draft.force_audio_reencode" type="checkbox" /> Force Audio Re-encode</label>
         </div>
         <div class="full-span">
           <button class="button submit-btn" type="submit">Save Settings</button>

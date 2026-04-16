@@ -86,12 +86,17 @@ class SchedulerCaptureMixin:
                     retry_attempt=retry_attempt,
                 )
             if adapter.record_uses_resolved_source() and (resolved_source is None or not resolved_source.stream_url):
-                category = resolved_source.failure_category or FailureCategory.UNKNOWN
+                if resolved_source is not None:
+                    category = resolved_source.failure_category or FailureCategory.UNKNOWN
+                    fail_message = resolved_source.message
+                else:
+                    category = FailureCategory.UNKNOWN
+                    fail_message = "Source resolution returned no result"
                 next_status = Status.PAUSED if channel.paused else (Status.IDLE if category == FailureCategory.PLATFORM_UNAVAILABLE else Status.ERROR)
                 self.channel_service.update_status(
                     channel_id,
                     status=next_status,
-                    last_error=None if category == FailureCategory.PLATFORM_UNAVAILABLE else resolved_source.message,
+                    last_error=None if category == FailureCategory.PLATFORM_UNAVAILABLE else fail_message,
                     next_check_at=compute_next_check_at(
                         channel_id,
                         channel.poll_interval_seconds,
@@ -101,23 +106,23 @@ class SchedulerCaptureMixin:
                 if category == FailureCategory.PLATFORM_UNAVAILABLE:
                     self._complete_session(
                         session,
-                        message=resolved_source.message,
+                        message=fail_message,
                         outcome="aborted",
-                        source_fingerprint=resolved_source.source_fingerprint,
-                        source_url=resolved_source.stream_url,
-                        room_status=resolved_source.room_status,
+                        source_fingerprint=getattr(resolved_source, "source_fingerprint", None),
+                        source_url=getattr(resolved_source, "stream_url", None),
+                        room_status=getattr(resolved_source, "room_status", None),
                     )
                 else:
                     self._fail_session(
                         session,
                         phase=RecordingPhase.SOURCE_RESOLUTION,
                         category=category,
-                        message=resolved_source.message,
-                        raw_output=resolved_source.raw_output,
-                        return_code=resolved_source.return_code,
-                        source_fingerprint=resolved_source.source_fingerprint,
-                        source_url=resolved_source.stream_url,
-                        room_status=resolved_source.room_status,
+                        message=fail_message,
+                        raw_output=getattr(resolved_source, "raw_output", None),
+                        return_code=getattr(resolved_source, "return_code", None),
+                        source_fingerprint=getattr(resolved_source, "source_fingerprint", None),
+                        source_url=getattr(resolved_source, "stream_url", None),
+                        room_status=getattr(resolved_source, "room_status", None),
                     )
                 return
             if resolved_source is not None and resolved_source.stream_url:
@@ -321,10 +326,18 @@ class SchedulerCaptureMixin:
             source_path=str(source_path),
             target_path=str(mp4_path),
         )
-        self._convert_recording(channel_id, source_path, mp4_path)
+        duration_seconds = None
+        if session is not None and hasattr(session, 'started_at') and session.started_at:
+            try:
+                from datetime import datetime, timezone
+                started = datetime.fromisoformat(session.started_at)
+                duration_seconds = int((datetime.now(started.tzinfo or timezone.utc) - started).total_seconds())
+            except (ValueError, TypeError):
+                duration_seconds = None
+        self._convert_recording(channel_id, source_path, mp4_path, duration_seconds=duration_seconds)
         self._complete_session(session, message="Recording finished", outcome="completed", source_path=str(source_path), target_path=str(mp4_path))
 
-    def _convert_recording(self, channel_id: str, source_path: Path, mp4_path: Path) -> None:
+    def _convert_recording(self, channel_id: str, source_path: Path, mp4_path: Path, *, duration_seconds: int | None = None) -> None:
         try:
             channel = self.channel_service.get_channel(channel_id)
         except KeyError:
@@ -333,7 +346,7 @@ class SchedulerCaptureMixin:
         try:
             mp4_path.parent.mkdir(parents=True, exist_ok=True)
             command = self.recorder.build_convert_command(source_path, mp4_path)
-            result = subprocess.run(command, capture_output=True, text=True, timeout=900, check=False)
+            result = subprocess.run(command, capture_output=True, text=True, timeout=config.convert_timeout_seconds, check=False)
         except FileNotFoundError:
             self.store.log_error(ErrorCode.DEPENDENCY_MISSING.value, "ffmpeg not found", channel_id, raw_output="ffmpeg not found")
             return
@@ -342,7 +355,7 @@ class SchedulerCaptureMixin:
                 ErrorCode.CONVERT_FAILED.value,
                 "Conversion timed out",
                 channel_id,
-                raw_output="Conversion process timed out after 900s",
+                raw_output=f"Conversion process timed out after {config.convert_timeout_seconds}s",
             )
             return
 
@@ -364,5 +377,6 @@ class SchedulerCaptureMixin:
             channel_id,
             last_recorded_file=str(mp4_path),
             last_recorded_at=utc_now_iso(),
+            last_recording_duration_seconds=duration_seconds,
         )
         self.store.log_info("convert_completed", "Recording converted to MP4", channel_id, output=str(mp4_path))

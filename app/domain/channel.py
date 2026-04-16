@@ -23,6 +23,7 @@ class Channel(BaseModel):
     last_online_at: str | None = None
     last_recorded_file: str | None = None
     last_recorded_at: str | None = None
+    last_recording_duration_seconds: int | None = None
     status: Status = Status.IDLE
     last_error: str | None = None
     active_pid: int | None = None

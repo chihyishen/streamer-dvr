@@ -22,6 +22,8 @@ class AppConfig(BaseModel):
     cookies_from_browser: str = "edge"
     yt_dlp_path: str = "yt-dlp"
     ffmpeg_path: str = "ffmpeg"
+    convert_timeout_seconds: int = 900
+    force_audio_reencode: bool = True
 
     model_config = {"populate_by_name": True}
 
@@ -45,5 +47,7 @@ class AppConfigUpdate(BaseModel):
     ffmpeg_path: str
     delete_source_after_convert: bool = False
     keep_failed_source: bool = False
+    convert_timeout_seconds: int = 900
+    force_audio_reencode: bool = True
 
     model_config = {"populate_by_name": True}

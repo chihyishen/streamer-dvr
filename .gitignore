@@ -25,6 +25,7 @@ events.jsonl
 sync_cookies.log
 
 # --- Planning Documents (Ignored as requested) ---
+notes/
 .internal/
 prd.md
 prd_v2.md
