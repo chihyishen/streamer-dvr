@@ -27,6 +27,7 @@ sync_cookies.log
 # --- Planning Documents (Ignored as requested) ---
 notes/
 .internal/
+.worktrees/
 prd.md
 prd_v2.md
 PROJECT_BLUEPRINT.md
