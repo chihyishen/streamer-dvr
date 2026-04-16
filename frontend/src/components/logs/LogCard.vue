@@ -87,17 +87,24 @@ defineProps<{
   line-height: 1.4;
   color: var(--text);
   letter-spacing: -0.01em;
+  min-width: 0;
+  overflow-wrap: anywhere;
+  word-break: break-word;
 }
 
 .message {
   color: var(--muted);
   line-height: 1.5;
   font-size: 14px;
+  min-width: 0;
+  overflow-wrap: anywhere;
+  word-break: break-word;
 }
 
 .metadata-row {
   display: flex;
   gap: 8px;
+  flex-wrap: wrap;
 }
 
 .raw-output {
