@@ -4,8 +4,9 @@ import unittest
 from pathlib import Path
 from tempfile import TemporaryDirectory
 
-from app.domain import FailureCategory, RecordingSessionStatus
-from app.services.session_core import RecordingPhase, RecordingSessionRegistry, ResolvedSource
+from app.domain import ErrorCode, FailureCategory, RecordingSessionStatus
+from app.platform import RecordingFailure
+from app.services.session_core import RecordingPhase, RecordingSessionRegistry, ResolvedSource, classify_recording_failure
 from app.storage import JsonStore
 
 
@@ -87,6 +88,17 @@ class SessionCorePersistenceTests(unittest.TestCase):
             self.assertEqual(store.count_events(channel_id="alice", level="ERROR"), 1)
             self.assertGreaterEqual(len(store.read_session_events(first.id)), 1)
             self.assertGreaterEqual(len(store.read_session_events(second.id)), 1)
+
+    def test_classify_recording_failure_treats_403_source_expired_as_source_unstable(self) -> None:
+        category = classify_recording_failure(
+            RecordingFailure(
+                error_code=ErrorCode.SOURCE_URL_EXPIRED,
+                message="Stream source expired (403/401)",
+            ),
+            room_status="public",
+        )
+
+        self.assertEqual(category, FailureCategory.SOURCE_UNSTABLE)
 
 
 if __name__ == "__main__":

@@ -262,6 +262,18 @@ class ChaturbatePlatformTests(unittest.TestCase):
         self.assertIn("Failed to reload playlist 0", result.raw_output)
         self.assertLessEqual(len(result.raw_output), self.platform.RAW_OUTPUT_LIMIT + len("[truncated]..."))
 
+    def test_map_recording_failure_does_not_treat_bare_502_in_url_as_5xx(self) -> None:
+        stderr = (
+            "Error opening input file "
+            "https://edge.example/live/playlist.m3u8?token=abc502def.\n"
+            "Error opening input files: Input/output error"
+        )
+
+        result = self.platform.map_recording_failure(stderr, 1)
+
+        self.assertEqual(result.error_code, ErrorCode.RECORDER_EXITED)
+        self.assertEqual(result.message, stderr)
+
 
 if __name__ == "__main__":
     unittest.main()

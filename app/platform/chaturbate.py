@@ -7,6 +7,7 @@ import urllib.request
 from pathlib import Path
 from urllib.parse import parse_qs, unquote, urlparse
 
+from ..common import looks_like_stream_edge_5xx
 from ..domain import AppConfig, Channel, ErrorCode, Platform
 from .base import EnsureDependency, PlatformAdapter, PlatformProbeResult, RecordingFailure, StreamSourceResult
 
@@ -392,10 +393,17 @@ class ChaturbatePlatform(PlatformAdapter):
                 raw_output=raw_output,
                 return_code=return_code,
             )
+        if looks_like_stream_edge_5xx(stderr):
+            return RecordingFailure(
+                ErrorCode.SOURCE_URL_EXPIRED,
+                "Stream source unavailable (5xx)",
+                raw_output=raw_output,
+                return_code=return_code,
+            )
         if "403" in lowered or "401" in lowered:
             return RecordingFailure(
                 ErrorCode.SOURCE_URL_EXPIRED,
-                "Stream source rejected (403/401)",
+                "Stream source expired (403/401)",
                 raw_output=raw_output,
                 return_code=return_code,
             )

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import tempfile
 import unittest
 from pathlib import Path
 from unittest.mock import MagicMock
@@ -85,6 +86,28 @@ class RecorderServiceTests(unittest.TestCase):
             ],
         )
         self.service._ensure_dependency.assert_called_once_with("ffmpeg", self.config.ffmpeg_path)
+
+    def test_should_refresh_stream_source_returns_true_for_502_server_error(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            source_path = Path(tmpdir) / "capture.mkv"
+
+            should_refresh = self.service.should_refresh_stream_source(
+                "[https @ 0x0] HTTP error 502 Bad Gateway",
+                source_path,
+            )
+
+        self.assertTrue(should_refresh)
+
+    def test_should_refresh_stream_source_does_not_match_bare_503_in_url(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            source_path = Path(tmpdir) / "capture.mkv"
+
+            should_refresh = self.service.should_refresh_stream_source(
+                "Error opening input file https://edge.example/live.m3u8?token=abc503def",
+                source_path,
+            )
+
+        self.assertFalse(should_refresh)
 
 if __name__ == "__main__":
     unittest.main()

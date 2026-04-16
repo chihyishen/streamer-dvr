@@ -190,12 +190,6 @@ def classify_recording_failure(failure: RecordingFailure, *, room_status: str | 
         return FailureCategory.PROCESS_FAILURE
     if error_code == ErrorCode.AUTH_OR_COOKIE_FAILED or "auth" in lowered or "cookie" in lowered:
         return FailureCategory.AUTH_INVALID
-    if error_code in {
-        ErrorCode.SOURCE_URL_EXPIRED,
-        ErrorCode.SOURCE_RESOLVE_FAILED,
-        ErrorCode.PLAYLIST_PARSE_FAILED,
-    } and ("403" in lowered or "401" in lowered or "cookie" in lowered or "auth" in lowered or "rejected" in lowered):
-        return FailureCategory.AUTH_INVALID
     if error_code == ErrorCode.TIMEOUT or "timed out" in lowered or "deadline exceeded" in lowered:
         return FailureCategory.NETWORK_TRANSIENT
     if error_code in {

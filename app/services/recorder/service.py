@@ -4,7 +4,7 @@ import math
 from datetime import datetime
 from pathlib import Path
 
-from ...common import utc_now_iso
+from ...common import looks_like_stream_edge_5xx, utc_now_iso
 from ...domain import Channel
 from ...platform import PlatformRegistry
 from ...storage import JsonStore
@@ -151,6 +151,7 @@ class RecorderService(RecorderDependencyMixin, RecorderProbeMixin, RecorderPathM
             or "http error 403" in lowered
             or "server returned 403 forbidden" in lowered
             or "403 forbidden" in lowered
+            or looks_like_stream_edge_5xx(stderr)
             or "manifestloaderror" in lowered
             or "invalid data found when processing input" in lowered
         )
