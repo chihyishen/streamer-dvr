@@ -48,13 +48,13 @@
           <div class="full-span form-pair">
             <div class="combobox-container">
               <label class="field-label">Category</label>
-              <div class="combobox-wrapper">
-                <input 
+              <div class="combobox-wrapper" ref="comboboxWrapper">
+                <input
                   type="text"
-                  class="text-input combobox-input" 
-                  v-model.trim="draft.category" 
+                  class="text-input combobox-input"
+                  v-model.trim="draft.category"
                   placeholder="Select or type..."
-                  @focus="showCategories = true"
+                  @focus="openCategories"
                   @blur="hideCategoriesWithDelay"
                 />
                 <div class="combobox-arrow"></div>
@@ -119,7 +119,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, ref } from "vue";
+import { computed, nextTick, ref } from "vue";
 
 const props = defineProps<{
   open: boolean;
@@ -140,10 +140,31 @@ const emit = defineEmits<{
 
 // Custom Combobox logic
 const showCategories = ref(false);
+const comboboxWrapper = ref<HTMLElement | null>(null);
 const filteredCategories = computed(() => {
   const query = (props.draft.category || "").toLowerCase();
   return props.categories.filter(c => c.toLowerCase().includes(query));
 });
+
+async function openCategories() {
+  showCategories.value = true;
+  // The dropdown is absolute-positioned and can be clipped by the dialog-card's
+  // overflow boundary when the Category field sits near the bottom of the modal.
+  // Wait for the dropdown to render, then ensure the wrapper is scrolled into
+  // a position that leaves room for the full dropdown (+ a small margin).
+  await nextTick();
+  const wrapper = comboboxWrapper.value;
+  if (!wrapper) return;
+  const card = wrapper.closest(".dialog-card") as HTMLElement | null;
+  const dropdown = wrapper.querySelector(".combobox-dropdown") as HTMLElement | null;
+  if (!card || !dropdown) return;
+  const cardRect = card.getBoundingClientRect();
+  const dropdownRect = dropdown.getBoundingClientRect();
+  const overflow = dropdownRect.bottom - cardRect.bottom;
+  if (overflow > 0) {
+    card.scrollBy({ top: overflow + 16, behavior: "smooth" });
+  }
+}
 
 function selectCategory(cat: string) {
   props.draft.category = cat;
