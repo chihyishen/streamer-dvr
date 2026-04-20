@@ -339,7 +339,7 @@ class SchedulerCaptureMixin:
 
     def _convert_recording(self, channel_id: str, source_path: Path, mp4_path: Path, *, duration_seconds: int | None = None) -> None:
         try:
-            channel = self.channel_service.get_channel(channel_id)
+            self.channel_service.get_channel(channel_id)
         except KeyError:
             return
         config = self.store.load_config()

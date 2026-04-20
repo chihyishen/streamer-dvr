@@ -4,8 +4,6 @@ from typing import Any
 
 from pydantic import BaseModel, Field
 
-from ..domain import AppConfig
-
 
 class EventItem(BaseModel):
     timestamp: str

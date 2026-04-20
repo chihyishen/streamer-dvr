@@ -11,9 +11,25 @@ dependencies = [
   "uvicorn>=0.34.0,<1.0.0"
 ]
 
+[project.optional-dependencies]
+dev = [
+  "ruff>=0.6.0,<1.0.0",
+]
+
 [build-system]
 requires = ["setuptools>=68", "wheel"]
 build-backend = "setuptools.build_meta"
 
-[tool.setuptools]
-packages = ["app"]
+[tool.setuptools.packages.find]
+include = ["app*"]
+exclude = ["tests*", "scripts*", "frontend*"]
+
+[tool.ruff]
+line-length = 120
+target-version = "py313"
+
+[tool.ruff.lint]
+# Conservative defaults — only real errors and undefined-name bugs.
+# Expand gradually (I, UP, B, SIM) once the codebase is reformatted.
+select = ["E", "F"]
+ignore = ["E501", "E741"]

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import math
+import time
 from datetime import datetime
 from pathlib import Path
 
@@ -106,6 +107,8 @@ class RecorderService(RecorderDependencyMixin, RecorderProbeMixin, RecorderPathM
         while attempt <= max_attempts:
             if attempt > 0:
                 delay = self.compute_source_retry_delay(attempt)
+                if delay > 0:
+                    time.sleep(delay)
             result = self.resolve_stream_source(channel, config)
             resolved = self._coerce_resolved_source(
                 result,
