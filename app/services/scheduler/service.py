@@ -3,6 +3,7 @@ from __future__ import annotations
 import subprocess
 import threading
 import time
+import traceback
 
 from ...domain import Status
 from ..channel import ChannelService
@@ -42,8 +43,13 @@ class SchedulerService(SchedulerRecoveryMixin, SchedulerCommandMixin, SchedulerP
             self._run_retention_if_due(force=True)
             self._schedule_startup_warmup_checks()
             self.store.log_info("scheduler_started", "Scheduler service starting...")
-        except Exception as e:
-            self.store.log_error("scheduler_init_failed", f"Failed to initialize scheduler: {str(e)}")
+        except Exception as exc:
+            self.store.log_error(
+                "scheduler_init_failed",
+                f"Failed to initialize scheduler: {exc}",
+                error_type=type(exc).__name__,
+                traceback=traceback.format_exc(),
+            )
             return
             
         self._running = True
@@ -61,32 +67,49 @@ class SchedulerService(SchedulerRecoveryMixin, SchedulerCommandMixin, SchedulerP
                 self._run_retention_if_due()
                 self._process_commands()
                 for channel in self.channel_service.list_channels():
-                    with self._record_lock:
-                        is_internally_active = channel.id in self._active_processes
-
-                    if channel.active_pid and self._pid_exists(channel.active_pid):
-                        if self._is_stalled_recording(channel):
-                            self._terminate_stalled_recording(channel)
-                            self._recover_stale_recording(channel)
-                        continue
-                    
-                    if is_internally_active:
-                        continue
-
-                    if channel.active_pid and not self._pid_exists(channel.active_pid):
-                        self._recover_stale_recording(channel)
-                        continue
-                    if channel.status == Status.RECORDING and not channel.active_pid:
-                        self._recover_stale_recording(channel)
-                        continue
-                    if not channel.is_active() or channel.status == Status.RECORDING:
-                        continue
-                    if self._is_due(channel.next_check_at):
-                        self._check_channel(channel.id)
-            except Exception as e:
-                self.store.log_error("scheduler_loop_error", f"Error in scheduler loop: {str(e)}")
-                time.sleep(5) # Avoid rapid error cycling
+                    try:
+                        self._tick_channel(channel)
+                    except Exception as exc:
+                        self.store.log_error(
+                            "scheduler_channel_tick_failed",
+                            f"Scheduler tick failed for channel: {exc}",
+                            channel.id,
+                            error_type=type(exc).__name__,
+                            traceback=traceback.format_exc(),
+                        )
+            except Exception as exc:
+                self.store.log_error(
+                    "scheduler_loop_error",
+                    f"Error in scheduler loop: {exc}",
+                    error_type=type(exc).__name__,
+                    traceback=traceback.format_exc(),
+                )
+                time.sleep(5)  # Avoid rapid error cycling
             time.sleep(2)
+
+    def _tick_channel(self, channel) -> None:
+        with self._record_lock:
+            is_internally_active = channel.id in self._active_processes
+
+        if channel.active_pid and self._pid_exists(channel.active_pid):
+            if self._is_stalled_recording(channel):
+                self._terminate_stalled_recording(channel)
+                self._recover_stale_recording(channel)
+            return
+
+        if is_internally_active:
+            return
+
+        if channel.active_pid and not self._pid_exists(channel.active_pid):
+            self._recover_stale_recording(channel)
+            return
+        if channel.status == Status.RECORDING and not channel.active_pid:
+            self._recover_stale_recording(channel)
+            return
+        if not channel.is_active() or channel.status == Status.RECORDING:
+            return
+        if self._is_due(channel.next_check_at):
+            self._check_channel(channel.id)
 
     def _run_retention_if_due(self, *, force: bool = False) -> None:
         now = time.monotonic()
@@ -95,8 +118,13 @@ class SchedulerService(SchedulerRecoveryMixin, SchedulerCommandMixin, SchedulerP
         self._last_retention_run_at = now
         try:
             summary = self.store.prune_retained_history()
-        except Exception as e:
-            self.store.log_error("log_retention_failed", f"Failed to prune retained history: {str(e)}")
+        except Exception as exc:
+            self.store.log_error(
+                "log_retention_failed",
+                f"Failed to prune retained history: {exc}",
+                error_type=type(exc).__name__,
+                traceback=traceback.format_exc(),
+            )
             return
         if int(summary.get("deleted_total", 0)) <= 0:
             return
