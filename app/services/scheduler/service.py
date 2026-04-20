@@ -4,19 +4,20 @@ import subprocess
 import threading
 import time
 import traceback
+from pathlib import Path
 
 from ...domain import Status
 from ..channel import ChannelService
 from ..recorder import RecorderService
 from ..session_core import RecordingSessionRegistry
 from ...storage import JsonStore
-from .capture import SchedulerCaptureMixin
-from .commands import SchedulerCommandMixin
-from .probe import SchedulerProbeMixin
-from .recovery import SchedulerRecoveryMixin
+from .handlers.capture import CaptureHandler
+from .handlers.commands import CommandHandler
+from .handlers.probe import ProbeHandler
+from .handlers.recovery import RecoveryHandler
 
 
-class SchedulerService(SchedulerRecoveryMixin, SchedulerCommandMixin, SchedulerProbeMixin, SchedulerCaptureMixin):
+class SchedulerService:
     STALLED_RECORDING_SECONDS = 180
     RETENTION_SWEEP_INTERVAL_SECONDS = 6 * 60 * 60
 
@@ -29,15 +30,31 @@ class SchedulerService(SchedulerRecoveryMixin, SchedulerCommandMixin, SchedulerP
         self._probe_slots = threading.Semaphore(1)
         self._record_lock = threading.RLock()
         self._active_processes: dict[str, subprocess.Popen[str]] = {}
-        self._last_probe_started_at = 0.0
         self._last_retention_run_at = 0.0
         self.sessions = RecordingSessionRegistry(store)
+
+        # Instantiate handlers
+        self._capture = CaptureHandler(
+            store, channel_service, recorder, self.sessions, self._record_lock, self._active_processes, self
+        )
+        self._probe = ProbeHandler(
+            store, channel_service, recorder, self.sessions, self._probe_slots, self._active_processes, self
+        )
+        self._commands = CommandHandler(
+            store, channel_service, self._record_lock, self._active_processes, self._probe
+        )
+        self._recovery = RecoveryHandler(
+            store, channel_service, self.sessions, self.STALLED_RECORDING_SECONDS, self
+        )
 
     def start(self) -> None:
         if self._running:
             return
         config = self.store.load_config()
         self._probe_slots = threading.Semaphore(config.max_concurrent_probes)
+        # Update handler's probe_slots as it's a new instance
+        self._probe._probe_slots = self._probe_slots
+        
         try:
             self._reconcile_channels()
             self._run_retention_if_due(force=True)
@@ -137,3 +154,53 @@ class SchedulerService(SchedulerRecoveryMixin, SchedulerCommandMixin, SchedulerP
             deleted_sessions=int(summary.get("deleted_sessions", 0)),
             vacuumed=bool(summary.get("vacuumed", False)),
         )
+
+    # Delegated methods (Private/Internal logic used by tests or cross-handlers)
+    def _pid_exists(self, pid: int) -> bool:
+        return self._recovery.pid_exists(pid)
+
+    def _reconcile_channels(self) -> None:
+        self._recovery.reconcile_channels()
+
+    def _schedule_startup_warmup_checks(self) -> None:
+        self._recovery.schedule_startup_warmup_checks()
+
+    def _is_stalled_recording(self, channel) -> bool:
+        return self._recovery.is_stalled_recording(channel)
+
+    def _terminate_stalled_recording(self, channel) -> None:
+        self._recovery.terminate_stalled_recording(channel)
+
+    def _recover_stale_recording(self, channel) -> None:
+        self._recovery.recover_stale_recording(channel)
+
+    def _is_due(self, next_check_at: str | None) -> bool:
+        return self._recovery.is_due(next_check_at)
+
+    def _process_commands(self) -> None:
+        self._commands.process_commands()
+
+    def _check_channel(self, channel_id: str) -> None:
+        self._probe.check_channel(channel_id)
+
+    def _check_channel_by_id(self, channel_id: str) -> None:
+        self._probe.check_channel_by_id(channel_id)
+
+    def _start_recording(self, *args, **kwargs) -> None:
+        self._capture.start_recording(*args, **kwargs)
+
+    def _stop_recording(self, channel_id: str) -> None:
+        self._commands.stop_recording(channel_id)
+
+    def _convert_recording(self, *args, **kwargs) -> None:
+        self._capture.convert_recording(*args, **kwargs)
+
+    def _resolve_capture_artifact(self, source_path: Path) -> Path | None:
+        return self._capture.resolve_capture_artifact(source_path)
+
+    # Public API (Command interface)
+    def trigger_check(self, channel_id: str) -> None:
+        self._commands.trigger_check(channel_id)
+
+    def pause_channel(self, channel_id: str):
+        return self._commands.pause_channel(channel_id)

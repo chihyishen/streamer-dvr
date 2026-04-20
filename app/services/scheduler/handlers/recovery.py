@@ -6,7 +6,7 @@ import time
 from datetime import datetime
 from pathlib import Path
 
-from ...common import (
+from app.common import (
     UnsafePathError,
     compute_next_check_at,
     compute_warmup_check_at,
@@ -15,29 +15,36 @@ from ...common import (
     utc_now,
     utc_now_iso,
 )
-from ...domain import ErrorCode, Status
-from ..session_core import FailureCategory, RecordingPhase
+from app.domain import ErrorCode, Status
+from app.services.session_core import FailureCategory, RecordingPhase
 
 
-class SchedulerRecoveryMixin:
-    def _pid_exists(self, pid: int) -> bool:
+class RecoveryHandler:
+    def __init__(self, store, channel_service, sessions, stalled_recording_seconds, service) -> None:
+        self.store = store
+        self.channel_service = channel_service
+        self.sessions = sessions
+        self.STALLED_RECORDING_SECONDS = stalled_recording_seconds
+        self.service = service
+
+    def pid_exists(self, pid: int) -> bool:
         try:
             os.kill(pid, 0)
         except OSError:
             return False
         return True
 
-    def _reconcile_channels(self) -> None:
+    def reconcile_channels(self) -> None:
         for channel in self.channel_service.list_channels():
-            if channel.active_pid and self._pid_exists(channel.active_pid):
-                if self._is_stalled_recording(channel):
-                    self._terminate_stalled_recording(channel)
+            if channel.active_pid and self.pid_exists(channel.active_pid):
+                if self.is_stalled_recording(channel):
+                    self.terminate_stalled_recording(channel)
                 else:
                     continue
             if channel.status == Status.RECORDING or channel.active_pid:
-                self._recover_stale_recording(channel)
+                self.recover_stale_recording(channel)
 
-    def _schedule_startup_warmup_checks(self) -> None:
+    def schedule_startup_warmup_checks(self) -> None:
         for channel in self.channel_service.list_channels():
             if not channel.is_active():
                 continue
@@ -45,7 +52,7 @@ class SchedulerRecoveryMixin:
                 continue
             warmup_at = compute_warmup_check_at(channel.id, 30, 120)
             current_next = channel.next_check_at
-            if current_next and not self._is_due(current_next):
+            if current_next and not self.is_due(current_next):
                 try:
                     current_dt = datetime.fromisoformat(current_next)
                     warmup_dt = datetime.fromisoformat(warmup_at)
@@ -57,7 +64,7 @@ class SchedulerRecoveryMixin:
             self.channel_service.update_status(channel.id, next_check_at=warmup_at)
         self.store.log_info("startup_warmup_scheduled", "Scheduled warmup checks after worker start")
 
-    def _is_stalled_recording(self, channel) -> bool:
+    def is_stalled_recording(self, channel) -> bool:
         if not channel.active_pid or channel.status != Status.RECORDING:
             return False
         if not channel.last_recorded_at:
@@ -71,7 +78,7 @@ class SchedulerRecoveryMixin:
             return False
         if not channel.last_recorded_file:
             return True
-        source_path = self._resolve_capture_artifact(Path(channel.last_recorded_file))
+        source_path = self.service._resolve_capture_artifact(Path(channel.last_recorded_file))
         if source_path is None:
             return True
         try:
@@ -80,12 +87,12 @@ class SchedulerRecoveryMixin:
             return True
         return modified_age >= self.STALLED_RECORDING_SECONDS
 
-    def _terminate_stalled_recording(self, channel) -> None:
+    def terminate_stalled_recording(self, channel) -> None:
         pid = channel.active_pid
         if not pid:
             return
         session = self.sessions.get(channel.id)
-        if self._pid_exists(pid):
+        if self.pid_exists(pid):
             try:
                 os.kill(pid, signal.SIGTERM)
             except OSError:
@@ -107,7 +114,7 @@ class SchedulerRecoveryMixin:
                 source=channel.last_recorded_file,
             )
 
-    def _recover_stale_recording(self, channel) -> None:
+    def recover_stale_recording(self, channel) -> None:
         session = self.sessions.get(channel.id) or self.sessions.open(
             channel.id,
             trigger="recovery",
@@ -121,7 +128,7 @@ class SchedulerRecoveryMixin:
         )
         source_path = None
         if channel.last_recorded_file:
-            source_path = self._resolve_capture_artifact(Path(channel.last_recorded_file))
+            source_path = self.service._resolve_capture_artifact(Path(channel.last_recorded_file))
         config = self.store.load_config()
         mp4_path = None
         recording_stem = None
@@ -168,7 +175,7 @@ class SchedulerRecoveryMixin:
                 source=str(source_path),
                 output=str(mp4_path),
             )
-            self._convert_recording(channel.id, source_path, mp4_path)
+            self.service._convert_recording(channel.id, source_path, mp4_path)
             self.sessions.complete(
                 session,
                 message="Recovered stale recording by conversion",
@@ -183,10 +190,10 @@ class SchedulerRecoveryMixin:
             session,
             message="Recovered stale recording state",
             outcome="aborted",
-            source=str(source_path) if source_path else None,
+            source_path=str(source_path) if source_path else None,
         )
 
-    def _is_due(self, next_check_at: str | None) -> bool:
+    def is_due(self, next_check_at: str | None) -> bool:
         if not next_check_at:
             return True
         try:

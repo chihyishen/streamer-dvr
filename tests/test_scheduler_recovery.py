@@ -10,11 +10,10 @@ from tempfile import TemporaryDirectory
 from unittest.mock import MagicMock, patch
 
 from app.domain import Channel, Platform, Status
-from app.services.scheduler.capture import SchedulerCaptureMixin
-from app.services.scheduler.recovery import SchedulerRecoveryMixin
+from app.services.scheduler.handlers.recovery import RecoveryHandler
 
 
-class _SchedulerUnderTest(SchedulerRecoveryMixin, SchedulerCaptureMixin):
+class _SchedulerUnderTest:
     STALLED_RECORDING_SECONDS = 180
 
     def __init__(self) -> None:
@@ -23,6 +22,29 @@ class _SchedulerUnderTest(SchedulerRecoveryMixin, SchedulerCaptureMixin):
         self.sessions = MagicMock()
         self._record_lock = threading.RLock()
         self._convert_recording = MagicMock()
+        self.handler = RecoveryHandler(
+            self.store,
+            self.channel_service,
+            self.sessions,
+            self.STALLED_RECORDING_SECONDS,
+            self,
+        )
+
+    def _resolve_capture_artifact(self, source_path: Path) -> Path | None:
+        candidates = [source_path, source_path.with_name(f"{source_path.name}.part")]
+        for candidate in candidates:
+            try:
+                if candidate.exists() and candidate.stat().st_size > 0:
+                    return candidate
+            except FileNotFoundError:
+                continue
+        return None
+
+    def _is_stalled_recording(self, channel) -> bool:
+        return self.handler.is_stalled_recording(channel)
+
+    def _recover_stale_recording(self, channel) -> None:
+        return self.handler.recover_stale_recording(channel)
 
 
 class SchedulerRecoveryTests(unittest.TestCase):
@@ -40,7 +62,7 @@ class SchedulerRecoveryTests(unittest.TestCase):
 
     def test_is_stalled_recording_accepts_active_part_file(self) -> None:
         scheduler = _SchedulerUnderTest()
-        with TemporaryDirectory() as tmpdir, patch("app.services.scheduler.recovery.utc_now") as utc_now_mock:
+        with TemporaryDirectory() as tmpdir, patch("app.services.scheduler.handlers.recovery.utc_now") as utc_now_mock:
             source_path = Path(tmpdir) / "capture.mkv"
             part_path = Path(f"{source_path}.part")
             part_path.write_bytes(b"data")

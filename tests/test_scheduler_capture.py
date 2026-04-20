@@ -9,10 +9,10 @@ from unittest.mock import MagicMock, patch
 
 from app.domain import AppConfig, Channel, ErrorCode, Platform, Status
 from app.services.session_core import FailureCategory, RecordingPhase
-from app.services.scheduler.capture import SchedulerCaptureMixin
+from app.services.scheduler.handlers.capture import CaptureHandler
 
 
-class _SchedulerUnderTest(SchedulerCaptureMixin):
+class _SchedulerUnderTest:
     def __init__(self) -> None:
         self._record_lock = threading.RLock()
         self._active_processes: dict[str, object] = {}
@@ -20,6 +20,27 @@ class _SchedulerUnderTest(SchedulerCaptureMixin):
         self.channel_service = MagicMock()
         self.recorder = MagicMock()
         self.sessions = MagicMock()
+        self.handler = CaptureHandler(
+            self.store,
+            self.channel_service,
+            self.recorder,
+            self.sessions,
+            self._record_lock,
+            self._active_processes,
+            self,
+        )
+
+    def _start_recording(self, *args, **kwargs) -> None:
+        return self.handler.start_recording(*args, **kwargs)
+
+    def _wait_for_recording(self, *args, **kwargs) -> None:
+        return self.handler._wait_for_recording(*args, **kwargs)
+
+    def _convert_recording(self, *args, **kwargs) -> None:
+        return self.handler.convert_recording(*args, **kwargs)
+
+    def _resolve_capture_artifact(self, source_path: Path) -> Path | None:
+        return self.handler.resolve_capture_artifact(source_path)
 
 
 class SchedulerCaptureTests(unittest.TestCase):

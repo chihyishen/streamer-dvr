@@ -7,19 +7,30 @@ from unittest.mock import patch
 
 from app.domain import Channel, Platform, Status
 from app.services.session_core import FailureCategory
-from app.services.scheduler.probe import SchedulerProbeMixin
+from app.services.scheduler.handlers.probe import ProbeHandler
 
 
-class _SchedulerUnderTest(SchedulerProbeMixin):
+class _SchedulerUnderTest:
     def __init__(self) -> None:
         self._probe_slots = threading.Semaphore(1)
         self._active_processes: dict[str, object] = {}
-        self._last_probe_started_at = 0.0
         self.store = MagicMock()
         self.channel_service = MagicMock()
         self.recorder = MagicMock()
         self.sessions = MagicMock()
         self._start_recording = MagicMock()
+        self.handler = ProbeHandler(
+            self.store,
+            self.channel_service,
+            self.recorder,
+            self.sessions,
+            self._probe_slots,
+            self._active_processes,
+            self,
+        )
+
+    def _check_channel(self, channel_id: str) -> None:
+        return self.handler.check_channel(channel_id)
 
 
 class SchedulerProbeTests(unittest.TestCase):
@@ -73,7 +84,7 @@ class SchedulerProbeTests(unittest.TestCase):
             return_code=404,
         )
 
-        with patch("app.services.scheduler.probe.compute_next_check_at", side_effect=["checking-at", "retry-at"]) as next_check_mock:
+        with patch("app.services.scheduler.handlers.probe.compute_next_check_at", side_effect=["checking-at", "retry-at"]) as next_check_mock:
             scheduler._check_channel(self.channel.id)
 
         next_check_mock.assert_any_call(self.channel.id, self.channel.poll_interval_seconds)

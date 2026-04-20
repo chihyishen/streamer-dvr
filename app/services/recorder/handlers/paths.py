@@ -2,11 +2,16 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from ...common import safe_join, safe_segment, utc_now
-from ...domain import AppConfig, Channel
+from app.common import safe_join, safe_segment, utc_now
+from app.domain import AppConfig, Channel
 
 
-class RecorderPathMixin:
+class PathHandler:
+    def __init__(self, store, platforms, service) -> None:
+        self.store = store
+        self.platforms = platforms
+        self.service = service
+
     def _build_format_selector(self, channel: Channel) -> str:
         filters: list[str] = []
         if channel.max_resolution:
@@ -23,7 +28,7 @@ class RecorderPathMixin:
             config=config,
             output_path=output_path,
             source_url=source_url,
-            ensure_dependency=self._ensure_dependency,
+            ensure_dependency=self.service._ensure_dependency,
             format_selector=self._build_format_selector(channel),
         )
 
@@ -34,13 +39,13 @@ class RecorderPathMixin:
             config=config,
             output_path=output_path,
             source_url=source_url,
-            ensure_dependency=self._ensure_dependency,
+            ensure_dependency=self.service._ensure_dependency,
             format_selector=self._build_format_selector(channel),
         )
 
     def build_convert_command(self, source: Path, target: Path) -> list[str]:
         config = self.store.load_config()
-        ffmpeg = self._ensure_dependency("ffmpeg", config.ffmpeg_path)
+        ffmpeg = self.service._ensure_dependency("ffmpeg", config.ffmpeg_path)
         command = [
             ffmpeg, "-fflags", "+genpts",
             "-i", str(source),

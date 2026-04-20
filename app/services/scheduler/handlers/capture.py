@@ -5,13 +5,22 @@ import subprocess
 import threading
 from pathlib import Path
 
-from ...common import compute_next_check_at, failure_backoff_seconds, utc_now_iso
-from ...domain import ErrorCode, Status
-from ..session_core import FailureCategory, RecordingPhase, ResolvedSource, classify_recording_failure
+from app.common import compute_next_check_at, failure_backoff_seconds, utc_now_iso
+from app.domain import ErrorCode, Status
+from app.services.session_core import FailureCategory, RecordingPhase, ResolvedSource, classify_recording_failure
 
 
-class SchedulerCaptureMixin:
-    def _resolve_capture_artifact(self, source_path: Path) -> Path | None:
+class CaptureHandler:
+    def __init__(self, store, channel_service, recorder, sessions, record_lock, active_processes, service) -> None:
+        self.store = store
+        self.channel_service = channel_service
+        self.recorder = recorder
+        self.sessions = sessions
+        self._record_lock = record_lock
+        self._active_processes = active_processes
+        self.service = service
+
+    def resolve_capture_artifact(self, source_path: Path) -> Path | None:
         candidates = [source_path, source_path.with_name(f"{source_path.name}.part")]
         for candidate in candidates:
             try:
@@ -49,7 +58,7 @@ class SchedulerCaptureMixin:
         if session is not None:
             self.sessions.fail(session, phase=phase, category=category, message=message, event_type=event_type, **metadata)
 
-    def _start_recording(
+    def start_recording(
         self,
         channel_id: str,
         *,
@@ -198,7 +207,7 @@ class SchedulerCaptureMixin:
             session.active_pid = None
 
         if channel.paused and return_code != 0:
-            artifact_path = self._resolve_capture_artifact(source_path)
+            artifact_path = self.resolve_capture_artifact(source_path)
             if artifact_path is not None:
                 self._transition_session(
                     session,
@@ -208,7 +217,7 @@ class SchedulerCaptureMixin:
                     source_path=str(artifact_path),
                     target_path=str(mp4_path),
                 )
-                self._convert_recording(channel_id, artifact_path, mp4_path)
+                self.service._convert_recording(channel_id, artifact_path, mp4_path)
                 self._complete_session(session, message="Recording stopped and converted", outcome="aborted", source_path=str(artifact_path), target_path=str(mp4_path))
             else:
                 self._complete_session(session, message="Recording stopped", outcome="aborted", source_path=str(source_path))
@@ -242,7 +251,7 @@ class SchedulerCaptureMixin:
                 )
                 if refreshed_source.stream_url and refreshed_source.stream_url != (resolved_source.stream_url if resolved_source else None):
                     self._attach_session_source(session, refreshed_source)
-                    self._start_recording(
+                    self.service._start_recording(
                         channel_id,
                         prepared_paths=(source_path, mp4_path),
                         retry_attempt=retry_attempt + 1,
@@ -251,7 +260,7 @@ class SchedulerCaptureMixin:
                     )
                     return
             if category == FailureCategory.PLATFORM_UNAVAILABLE:
-                artifact_path = self._resolve_capture_artifact(source_path)
+                artifact_path = self.resolve_capture_artifact(source_path)
                 self.channel_service.update_status(
                     channel_id,
                     status=Status.PAUSED if channel.paused else Status.IDLE,
@@ -272,7 +281,7 @@ class SchedulerCaptureMixin:
                         source_path=str(artifact_path),
                         target_path=str(mp4_path),
                     )
-                    self._convert_recording(channel_id, artifact_path, mp4_path)
+                    self.service._convert_recording(channel_id, artifact_path, mp4_path)
                 self._complete_session(
                     session,
                     message=failure.message,
@@ -284,7 +293,7 @@ class SchedulerCaptureMixin:
                     target_path=str(mp4_path) if artifact_path is not None else None,
                 )
                 return
-            artifact_path = self._resolve_capture_artifact(source_path)
+            artifact_path = self.resolve_capture_artifact(source_path)
             self.channel_service.update_status(
                 channel_id,
                 status=Status.ERROR,
@@ -305,7 +314,7 @@ class SchedulerCaptureMixin:
                     source_path=str(artifact_path),
                     target_path=str(mp4_path),
                 )
-                self._convert_recording(channel_id, artifact_path, mp4_path)
+                self.service._convert_recording(channel_id, artifact_path, mp4_path)
             self._fail_session(
                 session,
                 phase=RecordingPhase.RECORDING,
@@ -334,10 +343,10 @@ class SchedulerCaptureMixin:
                 duration_seconds = int((datetime.now(started.tzinfo or timezone.utc) - started).total_seconds())
             except (ValueError, TypeError):
                 duration_seconds = None
-        self._convert_recording(channel_id, source_path, mp4_path, duration_seconds=duration_seconds)
+        self.service._convert_recording(channel_id, source_path, mp4_path, duration_seconds=duration_seconds)
         self._complete_session(session, message="Recording finished", outcome="completed", source_path=str(source_path), target_path=str(mp4_path))
 
-    def _convert_recording(self, channel_id: str, source_path: Path, mp4_path: Path, *, duration_seconds: int | None = None) -> None:
+    def convert_recording(self, channel_id: str, source_path: Path, mp4_path: Path, *, duration_seconds: int | None = None) -> None:
         try:
             self.channel_service.get_channel(channel_id)
         except KeyError:
@@ -355,7 +364,7 @@ class SchedulerCaptureMixin:
                 ErrorCode.CONVERT_FAILED.value,
                 "Conversion timed out",
                 channel_id,
-                raw_output=f"Conversion process timed out after {config.convert_timeout_seconds}s",
+                raw_output=f"Probe process timed out after {config.convert_timeout_seconds}s",
             )
             return
 

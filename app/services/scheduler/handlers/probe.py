@@ -2,22 +2,32 @@ from __future__ import annotations
 
 import time
 
-from ...common import compute_next_check_at, failure_backoff_seconds, utc_now_iso
-from ...domain import AppConfig, Status
-from ..session_core import FailureCategory, RecordingPhase
+from app.common import compute_next_check_at, failure_backoff_seconds, utc_now_iso
+from app.domain import AppConfig, Status
+from app.services.session_core import FailureCategory, RecordingPhase
 
 
-class SchedulerProbeMixin:
+class ProbeHandler:
+    def __init__(self, store, channel_service, recorder, sessions, probe_slots, active_processes, service) -> None:
+        self.store = store
+        self.channel_service = channel_service
+        self.recorder = recorder
+        self.sessions = sessions
+        self._probe_slots = probe_slots
+        self._active_processes = active_processes
+        self.service = service
+        self._last_probe_started_at = 0.0
+
     def _respect_probe_rate_limit(self, config: AppConfig) -> None:
         wait_for = config.probe_rate_limit_seconds - (time.time() - self._last_probe_started_at)
         if wait_for > 0:
             time.sleep(wait_for)
         self._last_probe_started_at = time.time()
 
-    def _check_channel_by_id(self, channel_id: str) -> None:
-        self._check_channel(channel_id)
+    def check_channel_by_id(self, channel_id: str) -> None:
+        self.check_channel(channel_id)
 
-    def _check_channel(self, channel_id: str) -> None:
+    def check_channel(self, channel_id: str) -> None:
         if not self._probe_slots.acquire(blocking=False):
             return
         try:
@@ -56,7 +66,7 @@ class SchedulerProbeMixin:
                     last_error=None,
                     last_online_at=utc_now_iso(),
                 )
-                self._start_recording(channel.id, session=session, resolved_source=resolved_source)
+                self.service._start_recording(channel.id, session=session, resolved_source=resolved_source)
                 return
             category = resolved_source.failure_category or FailureCategory.UNKNOWN
             next_check = compute_next_check_at(

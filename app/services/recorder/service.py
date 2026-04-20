@@ -16,16 +16,22 @@ from ..session_core import (
     classify_recording_failure,
     classify_resolution_failure,
 )
-from .dependency import RecorderDependencyMixin
-from .paths import RecorderPathMixin
-from .probe import RecorderProbeMixin
+from .handlers.dependency import DependencyHandler
+from .handlers.paths import PathHandler
+from .handlers.probe import ProbeHandler
 
 
-class RecorderService(RecorderDependencyMixin, RecorderProbeMixin, RecorderPathMixin):
+class RecorderService:
     def __init__(self, store: JsonStore, channel_service: ChannelService, platforms: PlatformRegistry) -> None:
         self.store = store
         self.channel_service = channel_service
         self.platforms = platforms
+        self._dependency = DependencyHandler()
+        self._paths = PathHandler(store, platforms, self)
+        self._probe = ProbeHandler(platforms, self)
+
+    def _ensure_dependency(self, binary: str, configured_path: str | None = None) -> str:
+        return self._dependency.ensure_dependency(binary, configured_path)
 
     def _source_fingerprint(self, stream_url: str | None, metadata: dict | None = None) -> str | None:
         if not stream_url:
@@ -128,15 +134,6 @@ class RecorderService(RecorderDependencyMixin, RecorderProbeMixin, RecorderPathM
             failure_category=FailureCategory.UNKNOWN,
         )
 
-    def build_resolved_record_command(
-        self,
-        channel: Channel,
-        config,
-        output_path: Path,
-        source_url: str,
-    ) -> list[str]:
-        return RecorderPathMixin.build_resolved_record_command(self, channel, config, output_path, source_url)
-
     def classify_recording_failure(self, failure, *, room_status: str | None = None) -> FailureCategory:
         return classify_recording_failure(failure, room_status=room_status)
 
@@ -164,3 +161,22 @@ class RecorderService(RecorderDependencyMixin, RecorderProbeMixin, RecorderPathM
         exponent = max(attempt - 1, 0)
         delay = config.source_retry_initial_delay_seconds * math.pow(config.source_retry_backoff_multiplier, exponent)
         return min(delay, config.source_retry_max_delay_seconds)
+
+    # Delegated methods
+    def compute_paths(self, channel: Channel, config: any) -> tuple[Path, Path]:
+        return self._paths.compute_paths(channel, config)
+
+    def build_record_command(self, channel: Channel, config: any, output_path: Path, source_url: str) -> list[str]:
+        return self._paths.build_record_command(channel, config, output_path, source_url)
+
+    def build_resolved_record_command(self, channel: Channel, config: any, output_path: Path, source_url: str) -> list[str]:
+        return self._paths.build_resolved_record_command(channel, config, output_path, source_url)
+
+    def build_convert_command(self, source: Path, target: Path) -> list[str]:
+        return self._paths.build_convert_command(source, target)
+
+    def probe(self, channel: Channel, config: any) -> any:
+        return self._probe.probe(channel, config, self.resolve_stream_source)
+
+    def resolve_stream_source(self, channel: Channel, config: any) -> any:
+        return self._probe.resolve_stream_source(channel, config)

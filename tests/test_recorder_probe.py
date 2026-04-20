@@ -5,13 +5,27 @@ from unittest.mock import MagicMock
 
 from app.domain import AppConfig, Channel, ErrorCode, Platform
 from app.platform import PlatformProbeResult, StreamSourceResult
-from app.services.recorder.probe import RecorderProbeMixin
+from app.services.recorder.handlers.probe import ProbeHandler
 
 
-class _RecorderUnderTest(RecorderProbeMixin):
+class _RecorderUnderTest:
     def __init__(self) -> None:
         self.platforms = MagicMock()
-        self._ensure_dependency = MagicMock(side_effect=lambda binary, _path=None: binary)
+        self.service = MagicMock()
+        self.service._ensure_dependency = MagicMock(side_effect=lambda binary, _path=None: binary)
+        self.handler = ProbeHandler(self.platforms, self.service)
+
+    def probe(self, channel: Channel, config: AppConfig) -> any:
+        return self.handler.probe(channel, config, self.resolve_stream_source)
+
+    def resolve_stream_source(self, channel: Channel, config: AppConfig) -> any:
+        return self.handler.resolve_stream_source(channel, config)
+
+    def _resolver_indicates_public_room(self, result) -> bool:
+        return self.handler._resolver_indicates_public_room(result)
+
+    def _run_probe_attempt(self, channel: Channel, config: AppConfig, use_cookies: bool) -> any:
+        return self.handler._run_probe_attempt(channel, config, use_cookies)
 
 
 class RecorderProbeTests(unittest.TestCase):
@@ -30,12 +44,12 @@ class RecorderProbeTests(unittest.TestCase):
         recorder.resolve_stream_source = MagicMock(
             return_value=StreamSourceResult(status="public", message="Streamer is live", stream_url="https://cdn.example/live.m3u8")
         )
-        recorder._run_probe_attempt = MagicMock()
+        recorder.handler._run_probe_attempt = MagicMock()
 
         result = recorder.probe(self.channel, self.config)
 
         self.assertTrue(result.online)
-        recorder._run_probe_attempt.assert_not_called()
+        recorder.handler._run_probe_attempt.assert_not_called()
 
     def test_resolve_stream_source_retries_without_cookies_after_auth_failure(self) -> None:
         recorder = _RecorderUnderTest()
@@ -59,13 +73,13 @@ class RecorderProbeTests(unittest.TestCase):
                 error_code=ErrorCode.SOURCE_RESOLVE_FAILED,
             )
         )
-        recorder._run_probe_attempt = MagicMock(return_value=PlatformProbeResult(False, "Streamer offline"))
+        recorder.handler._run_probe_attempt = MagicMock(return_value=PlatformProbeResult(False, "Streamer offline"))
 
         result = recorder.probe(self.channel, self.config)
 
         self.assertFalse(result.online)
         self.assertIsNone(result.error_code)
-        self.assertEqual(recorder._run_probe_attempt.call_count, 1)
+        self.assertEqual(recorder.handler._run_probe_attempt.call_count, 1)
 
     def test_probe_does_not_fallback_to_yt_dlp_when_resolver_says_public_but_source_failed(self) -> None:
         recorder = _RecorderUnderTest()
@@ -77,14 +91,15 @@ class RecorderProbeTests(unittest.TestCase):
                 metadata={"room_status": "public"},
             )
         )
-        recorder._run_probe_attempt = MagicMock(return_value=PlatformProbeResult(False, "Streamer offline"))
+        recorder.handler._run_probe_attempt = MagicMock(return_value=PlatformProbeResult(False, "Streamer offline"))
 
         result = recorder.probe(self.channel, self.config)
 
         self.assertFalse(result.online)
         self.assertEqual(result.error_code, ErrorCode.SOURCE_URL_EXPIRED)
         self.assertEqual(result.message, "Validated stream source returned 404")
-        recorder._run_probe_attempt.assert_not_called()
+        recorder.handler._run_probe_attempt.assert_not_called()
+
 
     def test_resolve_stream_source_does_not_retry_without_cookies_when_room_is_public(self) -> None:
         recorder = _RecorderUnderTest()

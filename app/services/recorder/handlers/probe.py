@@ -2,17 +2,21 @@ from __future__ import annotations
 
 import subprocess
 
-from ...domain import AppConfig, Channel, ErrorCode
-from ...platform import PlatformProbeResult, StreamSourceResult
+from app.domain import AppConfig, Channel, ErrorCode
+from app.platform import PlatformProbeResult
 
 
-class RecorderProbeMixin:
-    def _resolver_indicates_public_room(self, result: StreamSourceResult) -> bool:
+class ProbeHandler:
+    def __init__(self, platforms, service) -> None:
+        self.platforms = platforms
+        self.service = service
+
+    def _resolver_indicates_public_room(self, result) -> bool:
         metadata = result.metadata or {}
         return str(metadata.get("room_status") or "").lower() == "public"
 
-    def probe(self, channel: Channel, config: AppConfig) -> PlatformProbeResult:
-        resolved_source = self.resolve_stream_source(channel, config)
+    def probe(self, channel: Channel, config: AppConfig, resolve_stream_source_fn) -> any:
+        resolved_source = resolve_stream_source_fn(channel, config)
         if resolved_source.stream_url:
             return PlatformProbeResult(
                 True,
@@ -36,7 +40,7 @@ class RecorderProbeMixin:
                 return_code=resolved_source.return_code,
             )
         try:
-            self._ensure_dependency("yt-dlp", config.yt_dlp_path)
+            self.service._ensure_dependency("yt-dlp", config.yt_dlp_path)
         except FileNotFoundError:
             return PlatformProbeResult(
                 False,
@@ -67,7 +71,7 @@ class RecorderProbeMixin:
             return_code=resolved_source.return_code,
         )
 
-    def resolve_stream_source(self, channel: Channel, config: AppConfig) -> StreamSourceResult:
+    def resolve_stream_source(self, channel: Channel, config: AppConfig) -> any:
         adapter = self.platforms.get(channel.platform)
         first_result = adapter.resolve_stream_source(channel, config, use_cookies=True)
         if self._resolver_indicates_public_room(first_result) or first_result.stream_url or first_result.error_code is None:
@@ -78,9 +82,14 @@ class RecorderProbeMixin:
                 return fallback_result
         return first_result
 
-    def _run_probe_attempt(self, channel: Channel, config: AppConfig, use_cookies: bool) -> PlatformProbeResult:
+    def _run_probe_attempt(self, channel: Channel, config: AppConfig, use_cookies: bool) -> any:
         adapter = self.platforms.get(channel.platform)
-        command = adapter.probe_command(channel, config, use_cookies=use_cookies, ensure_dependency=self._ensure_dependency)
+        command = adapter.probe_command(
+            channel,
+            config,
+            use_cookies=use_cookies,
+            ensure_dependency=self.service._ensure_dependency,
+        )
         try:
             result = subprocess.run(
                 command,

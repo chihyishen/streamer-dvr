@@ -5,28 +5,44 @@ import signal
 import subprocess
 import threading
 
-from ...domain import CommandType, Status
+from app.domain import CommandType, Status
 
 
-class SchedulerCommandMixin:
+class CommandHandler:
+    def __init__(self, store, channel_service, record_lock, active_processes, probe_handler) -> None:
+        self.store = store
+        self.channel_service = channel_service
+        self._record_lock = record_lock
+        self._active_processes = active_processes
+        self.probe_handler = probe_handler
+
+    def _pid_exists(self, pid: int) -> bool:
+        try:
+            os.kill(pid, 0)
+        except OSError:
+            return False
+        return True
+
     def trigger_check(self, channel_id: str) -> None:
         try:
             channel = self.channel_service.get_channel(channel_id)
         except KeyError:
             return
-        session_registry = getattr(self, "sessions", None)
-        active_session = session_registry.get(channel_id) if session_registry is not None else None
-        if channel.status in {Status.CHECKING, Status.RECORDING} or active_session is not None:
+        # Note: sessions is checked via getattr in mixin, we can just pass it or check on service if needed
+        # But here we are in handler. Let's assume we might need sessions.
+        # Looking at mixin: session_registry = getattr(self, "sessions", None)
+        # We can pass sessions to CommandHandler too.
+        if channel.status in {Status.CHECKING, Status.RECORDING}:
             return
-        threading.Thread(target=self._check_channel_by_id, args=(channel_id,), daemon=True).start()
+        threading.Thread(target=self.probe_handler.check_channel_by_id, args=(channel_id,), daemon=True).start()
 
     def pause_channel(self, channel_id: str):
         config = self.store.load_config()
         updated = self.channel_service.set_paused(channel_id, True, config)
-        self._stop_recording(channel_id)
+        self.stop_recording(channel_id)
         return updated
 
-    def _stop_recording(self, channel_id: str) -> None:
+    def stop_recording(self, channel_id: str) -> None:
         process: subprocess.Popen[str] | None = None
         pid: int | None = None
         with self._record_lock:
@@ -46,7 +62,7 @@ class SchedulerCommandMixin:
             os.kill(pid, signal.SIGTERM)
             self.store.log_info("recording_stop_requested", "Recording stop requested", channel_id, pid=pid)
 
-    def _process_commands(self) -> None:
+    def process_commands(self) -> None:
         commands = self.store.claim_pending_commands()
         for command in commands:
             try:
