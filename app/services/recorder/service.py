@@ -6,8 +6,8 @@ from datetime import datetime
 from pathlib import Path
 
 from ...common import looks_like_stream_edge_5xx, utc_now_iso
-from ...domain import Channel
-from ...platform import PlatformRegistry
+from ...domain import AppConfig, Channel
+from ...platform import PlatformProbeResult, PlatformRegistry, StreamSourceResult
 from ...storage import JsonStore
 from ..channel import ChannelService
 from ..session_core import (
@@ -163,20 +163,20 @@ class RecorderService:
         return min(delay, config.source_retry_max_delay_seconds)
 
     # Delegated methods
-    def compute_paths(self, channel: Channel, config: any) -> tuple[Path, Path]:
+    def compute_paths(self, channel: Channel, config: AppConfig) -> tuple[Path, Path]:
         return self._paths.compute_paths(channel, config)
 
-    def build_record_command(self, channel: Channel, config: any, output_path: Path, source_url: str) -> list[str]:
+    def build_record_command(self, channel: Channel, config: AppConfig, output_path: Path, source_url: str) -> list[str]:
         return self._paths.build_record_command(channel, config, output_path, source_url)
 
-    def build_resolved_record_command(self, channel: Channel, config: any, output_path: Path, source_url: str) -> list[str]:
+    def build_resolved_record_command(self, channel: Channel, config: AppConfig, output_path: Path, source_url: str) -> list[str]:
         return self._paths.build_resolved_record_command(channel, config, output_path, source_url)
 
     def build_convert_command(self, source: Path, target: Path) -> list[str]:
         return self._paths.build_convert_command(source, target)
 
-    def probe(self, channel: Channel, config: any) -> any:
+    def probe(self, channel: Channel, config: AppConfig) -> PlatformProbeResult:
         return self._probe.probe(channel, config, self.resolve_stream_source)
 
-    def resolve_stream_source(self, channel: Channel, config: any) -> any:
+    def resolve_stream_source(self, channel: Channel, config: AppConfig) -> StreamSourceResult:
         return self._probe.resolve_stream_source(channel, config)

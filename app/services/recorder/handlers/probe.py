@@ -3,7 +3,7 @@ from __future__ import annotations
 import subprocess
 
 from app.domain import AppConfig, Channel, ErrorCode
-from app.platform import PlatformProbeResult
+from app.platform import PlatformProbeResult, StreamSourceResult
 
 
 class ProbeHandler:
@@ -15,7 +15,7 @@ class ProbeHandler:
         metadata = result.metadata or {}
         return str(metadata.get("room_status") or "").lower() == "public"
 
-    def probe(self, channel: Channel, config: AppConfig, resolve_stream_source_fn) -> any:
+    def probe(self, channel: Channel, config: AppConfig, resolve_stream_source_fn) -> PlatformProbeResult:
         resolved_source = resolve_stream_source_fn(channel, config)
         if resolved_source.stream_url:
             return PlatformProbeResult(
@@ -71,7 +71,7 @@ class ProbeHandler:
             return_code=resolved_source.return_code,
         )
 
-    def resolve_stream_source(self, channel: Channel, config: AppConfig) -> any:
+    def resolve_stream_source(self, channel: Channel, config: AppConfig) -> StreamSourceResult:
         adapter = self.platforms.get(channel.platform)
         first_result = adapter.resolve_stream_source(channel, config, use_cookies=True)
         if self._resolver_indicates_public_room(first_result) or first_result.stream_url or first_result.error_code is None:
@@ -82,7 +82,7 @@ class ProbeHandler:
                 return fallback_result
         return first_result
 
-    def _run_probe_attempt(self, channel: Channel, config: AppConfig, use_cookies: bool) -> any:
+    def _run_probe_attempt(self, channel: Channel, config: AppConfig, use_cookies: bool) -> StreamSourceResult:
         adapter = self.platforms.get(channel.platform)
         command = adapter.probe_command(
             channel,
