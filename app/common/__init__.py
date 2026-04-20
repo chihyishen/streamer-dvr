@@ -1,5 +1,6 @@
 from .events import event_tone, is_expected_unavailable_message, summarize_event
 from .network import looks_like_stream_edge_5xx
+from .paths import UnsafePathError, safe_join, safe_segment
 from .schedule import compute_next_check_at, compute_warmup_check_at, failure_backoff_seconds, stable_jitter_seconds
 from .time import DEFAULT_TIMEZONE, format_display_time, utc_now, utc_now_iso
 from .ui import display_filename, display_status
@@ -19,4 +20,7 @@ __all__ = [
     "compute_next_check_at",
     "failure_backoff_seconds",
     "compute_warmup_check_at",
+    "UnsafePathError",
+    "safe_join",
+    "safe_segment",
 ]

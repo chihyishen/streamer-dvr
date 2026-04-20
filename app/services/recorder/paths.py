@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from ...common import utc_now
+from ...common import safe_join, safe_segment, utc_now
 from ...domain import AppConfig, Channel
 
 
@@ -59,18 +59,19 @@ class RecorderPathMixin:
 
     def compute_paths(self, channel: Channel, config: AppConfig) -> tuple[Path, Path]:
         started_at = utc_now().strftime("%Y-%m-%d_%H-%M-%S")
-        recordings_dir = Path(config.recordings_dir)
-        organized_dir = Path(config.organized_dir) / channel.username
-        recordings_dir.mkdir(parents=True, exist_ok=True)
+        recordings_base = Path(config.recordings_dir).resolve(strict=False)
+        organized_base = Path(config.organized_dir).resolve(strict=False)
+        recordings_base.mkdir(parents=True, exist_ok=True)
+        username_segment = safe_segment(channel.username, field="channel.username")
         extension = self.platforms.get(channel.platform).recording_extension()
         base_name = channel.filename_pattern.format(
-            streamer=channel.username,
+            streamer=username_segment,
             started_at=started_at,
             ext=extension,
         )
-        if "/" in base_name:
-            base_name = Path(base_name).name
-        source_path = recordings_dir / base_name
-        mp4_name = f"{source_path.stem}.mp4" if source_path.suffix else f"{source_path.name}.mp4"
-        mp4_path = organized_dir / mp4_name
+        # Strip any traversal a pattern may have injected — collapse to final name.
+        base_name = Path(base_name).name
+        source_path = safe_join(recordings_base, base_name)
+        mp4_stem = source_path.stem if source_path.suffix else source_path.name
+        mp4_path = safe_join(organized_base, username_segment, f"{mp4_stem}.mp4")
         return source_path, mp4_path

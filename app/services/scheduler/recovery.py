@@ -6,7 +6,15 @@ import time
 from datetime import datetime
 from pathlib import Path
 
-from ...common import compute_next_check_at, compute_warmup_check_at, utc_now, utc_now_iso
+from ...common import (
+    UnsafePathError,
+    compute_next_check_at,
+    compute_warmup_check_at,
+    safe_join,
+    safe_segment,
+    utc_now,
+    utc_now_iso,
+)
 from ...domain import ErrorCode, Status
 from ..session_core import FailureCategory, RecordingPhase
 
@@ -121,7 +129,14 @@ class SchedulerRecoveryMixin:
             recording_stem = source_path.name.removesuffix(".part")
             recording_stem = Path(recording_stem).stem
         if source_path and recording_stem:
-            mp4_path = Path(config.organized_dir) / channel.username / f"{recording_stem}.mp4"
+            try:
+                mp4_path = safe_join(
+                    Path(config.organized_dir),
+                    safe_segment(channel.username, field="channel.username"),
+                    f"{Path(recording_stem).name}.mp4",
+                )
+            except UnsafePathError:
+                mp4_path = None
         if mp4_path and mp4_path.exists():
             self.channel_service.update_status(
                 channel.id,
