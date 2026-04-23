@@ -30,6 +30,34 @@ class CaptureHandler:
                 continue
         return None
 
+    def _retry_artifact_path(self, artifact_path: Path, retry_attempt: int) -> Path:
+        suffix = "".join(artifact_path.suffixes)
+        stem = artifact_path.name[: -len(suffix)] if suffix else artifact_path.name
+        candidate = artifact_path.with_name(f"{stem}__retry{retry_attempt}{suffix}")
+        collision_index = 1
+        while candidate.exists():
+            candidate = artifact_path.with_name(f"{stem}__retry{retry_attempt}_{collision_index}{suffix}")
+            collision_index += 1
+        return candidate
+
+    def _preserve_retry_artifact(self, artifact_path: Path, retry_attempt: int) -> Path | None:
+        preserved_path = self._retry_artifact_path(artifact_path, retry_attempt)
+        try:
+            artifact_path.replace(preserved_path)
+        except FileNotFoundError:
+            return None
+        return preserved_path
+
+    def _clear_missing_recording_state(self, channel, channel_id: str, source_path: Path) -> None:
+        if channel.last_recorded_file != str(source_path):
+            return
+        self.channel_service.update_status(
+            channel_id,
+            last_recorded_file=None,
+            last_recorded_at=None,
+            last_recording_duration_seconds=None,
+        )
+
     def _open_session(self, channel_id: str, *, trigger: str, metadata: dict[str, object] | None = None):
         return self.sessions.open(channel_id, trigger=trigger, metadata=metadata)
 
@@ -233,6 +261,19 @@ class CaptureHandler:
             }
             if should_reacquire:
                 config = self.store.load_config()
+                if config.keep_failed_source:
+                    artifact_path = self.resolve_capture_artifact(source_path)
+                    if artifact_path is not None:
+                        preserved_path = self._preserve_retry_artifact(artifact_path, retry_attempt + 1)
+                        if preserved_path is not None:
+                            self.store.log_info(
+                                "recording_artifact_preserved",
+                                "Preserved partial recording before source retry",
+                                channel_id,
+                                source=str(artifact_path),
+                                output=str(preserved_path),
+                                retry_attempt=retry_attempt + 1,
+                            )
                 delay = self.recorder.compute_source_retry_delay(retry_attempt + 1)
                 self._transition_session(
                     session,
@@ -281,7 +322,9 @@ class CaptureHandler:
                         source_path=str(artifact_path),
                         target_path=str(mp4_path),
                     )
-                    self.service._convert_recording(channel_id, artifact_path, mp4_path)
+                    self.service._convert_recording(channel_id, artifact_path, mp4_path, failed_recording=True)
+                else:
+                    self._clear_missing_recording_state(channel, channel_id, source_path)
                 self._complete_session(
                     session,
                     message=failure.message,
@@ -314,7 +357,9 @@ class CaptureHandler:
                     source_path=str(artifact_path),
                     target_path=str(mp4_path),
                 )
-                self.service._convert_recording(channel_id, artifact_path, mp4_path)
+                self.service._convert_recording(channel_id, artifact_path, mp4_path, failed_recording=True)
+            else:
+                self._clear_missing_recording_state(channel, channel_id, source_path)
             self._fail_session(
                 session,
                 phase=RecordingPhase.RECORDING,
@@ -346,7 +391,15 @@ class CaptureHandler:
         self.service._convert_recording(channel_id, source_path, mp4_path, duration_seconds=duration_seconds)
         self._complete_session(session, message="Recording finished", outcome="completed", source_path=str(source_path), target_path=str(mp4_path))
 
-    def convert_recording(self, channel_id: str, source_path: Path, mp4_path: Path, *, duration_seconds: int | None = None) -> None:
+    def convert_recording(
+        self,
+        channel_id: str,
+        source_path: Path,
+        mp4_path: Path,
+        *,
+        duration_seconds: int | None = None,
+        failed_recording: bool = False,
+    ) -> None:
         try:
             self.channel_service.get_channel(channel_id)
         except KeyError:
@@ -378,7 +431,8 @@ class CaptureHandler:
             )
             return
 
-        if config.delete_source_after_convert and source_path.exists():
+        should_delete_source = config.delete_source_after_convert and (not failed_recording or not config.keep_failed_source)
+        if should_delete_source and source_path.exists():
             os.remove(source_path)
 
         # Only update file paths, do NOT touch status as it might be RECORDING again for a new session

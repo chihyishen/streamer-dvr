@@ -173,11 +173,208 @@ class SchedulerCaptureTests(unittest.TestCase):
             self.channel.id,
             partial_path,
             mp4_path,
+            failed_recording=True,
         )
         scheduler.sessions.fail.assert_called_once()
         fail_kwargs = scheduler.sessions.fail.call_args.kwargs
         self.assertEqual(fail_kwargs["source_path"], str(partial_path))
         self.assertEqual(fail_kwargs["target_path"], str(mp4_path))
+
+    def test_wait_for_recording_clears_stale_last_recorded_file_when_failure_leaves_no_artifact(self) -> None:
+        scheduler = _SchedulerUnderTest()
+        scheduler._active_processes[self.channel.id] = object()
+        self.channel.last_recorded_file = "/tmp/capture.mkv"
+        self.channel.last_recorded_at = "2026-04-22T21:22:05+08:00"
+        self.channel.last_recording_duration_seconds = 12
+        scheduler.channel_service.get_channel.return_value = self.channel
+        scheduler.recorder.should_refresh_stream_source.return_value = False
+        scheduler.recorder.platforms.get.return_value.map_recording_failure.return_value = MagicMock(
+            message="Stream source unavailable (5xx)",
+            error_code=ErrorCode.SOURCE_URL_EXPIRED,
+            raw_output="HTTP 502",
+            return_code=8,
+        )
+
+        process = MagicMock()
+        process.stderr = io.StringIO("HTTP error 502 Bad Gateway")
+        process.wait.return_value = 8
+
+        with TemporaryDirectory() as tmpdir:
+            source_path = Path(tmpdir) / "capture.mkv"
+            mp4_path = Path(tmpdir) / "capture.mp4"
+            self.channel.last_recorded_file = str(source_path)
+            scheduler._wait_for_recording(
+                self.channel.id,
+                process,
+                source_path,
+                mp4_path,
+                0,
+                session=MagicMock(id="sess-1", active_pid=1234),
+                resolved_source=MagicMock(room_status="public", stream_url="https://edge.example/live.m3u8"),
+            )
+
+        self.assertIn(
+            unittest.mock.call(
+                self.channel.id,
+                last_recorded_file=None,
+                last_recorded_at=None,
+                last_recording_duration_seconds=None,
+            ),
+            scheduler.channel_service.update_status.call_args_list,
+        )
+
+    def test_wait_for_recording_preserves_existing_artifact_before_source_retry(self) -> None:
+        scheduler = _SchedulerUnderTest()
+        scheduler._active_processes[self.channel.id] = object()
+        scheduler.channel_service.get_channel.return_value = self.channel
+        scheduler.recorder.should_refresh_stream_source.return_value = True
+        adapter = scheduler.recorder.platforms.get.return_value
+        adapter.record_uses_resolved_source.return_value = True
+        adapter.map_recording_failure.return_value = MagicMock(
+            message="Stream source unavailable (5xx)",
+            error_code=ErrorCode.SOURCE_URL_EXPIRED,
+            raw_output="HTTP 502",
+            return_code=8,
+        )
+        scheduler.store.load_config.return_value = AppConfig(keep_failed_source=True)
+        scheduler.recorder.compute_source_retry_delay.return_value = 1.0
+        refreshed_source = MagicMock(stream_url="https://edge.example/next.m3u8", room_status="public")
+        scheduler.recorder.acquire_resolved_source.return_value = refreshed_source
+        scheduler._start_recording = MagicMock()
+
+        process = MagicMock()
+        process.stderr = io.StringIO("HTTP error 502 Bad Gateway")
+        process.wait.return_value = 8
+        session = MagicMock(id="sess-1", active_pid=1234)
+        resolved_source = MagicMock(room_status="public", stream_url="https://edge.example/current.m3u8")
+
+        with TemporaryDirectory() as tmpdir:
+            source_path = Path(tmpdir) / "capture.mkv"
+            source_path.write_bytes(b"partial-media")
+            mp4_path = Path(tmpdir) / "capture.mp4"
+            scheduler._wait_for_recording(
+                self.channel.id,
+                process,
+                source_path,
+                mp4_path,
+                0,
+                session=session,
+                resolved_source=resolved_source,
+            )
+
+            preserved_path = Path(tmpdir) / "capture__retry1.mkv"
+            self.assertFalse(source_path.exists())
+            self.assertTrue(preserved_path.exists())
+            self.assertEqual(preserved_path.read_bytes(), b"partial-media")
+
+        scheduler._start_recording.assert_called_once_with(
+            self.channel.id,
+            prepared_paths=(source_path, mp4_path),
+            retry_attempt=1,
+            session=session,
+            resolved_source=refreshed_source,
+        )
+        scheduler.store.log_info.assert_any_call(
+            "recording_artifact_preserved",
+            "Preserved partial recording before source retry",
+            self.channel.id,
+            source=str(source_path),
+            output=str(Path(tmpdir) / "capture__retry1.mkv"),
+            retry_attempt=1,
+        )
+
+    def test_wait_for_recording_does_not_preserve_artifact_before_retry_when_disabled(self) -> None:
+        scheduler = _SchedulerUnderTest()
+        scheduler._active_processes[self.channel.id] = object()
+        scheduler.channel_service.get_channel.return_value = self.channel
+        scheduler.recorder.should_refresh_stream_source.return_value = True
+        adapter = scheduler.recorder.platforms.get.return_value
+        adapter.record_uses_resolved_source.return_value = True
+        adapter.map_recording_failure.return_value = MagicMock(
+            message="Stream source unavailable (5xx)",
+            error_code=ErrorCode.SOURCE_URL_EXPIRED,
+            raw_output="HTTP 502",
+            return_code=8,
+        )
+        scheduler.store.load_config.return_value = AppConfig(keep_failed_source=False)
+        scheduler.recorder.compute_source_retry_delay.return_value = 1.0
+        scheduler.recorder.acquire_resolved_source.return_value = MagicMock(
+            stream_url="https://edge.example/next.m3u8",
+            room_status="public",
+        )
+        scheduler._start_recording = MagicMock()
+
+        process = MagicMock()
+        process.stderr = io.StringIO("HTTP error 502 Bad Gateway")
+        process.wait.return_value = 8
+
+        with TemporaryDirectory() as tmpdir:
+            source_path = Path(tmpdir) / "capture.mkv"
+            source_path.write_bytes(b"partial-media")
+            scheduler._wait_for_recording(
+                self.channel.id,
+                process,
+                source_path,
+                Path(tmpdir) / "capture.mp4",
+                0,
+                session=MagicMock(id="sess-1", active_pid=1234),
+                resolved_source=MagicMock(room_status="public", stream_url="https://edge.example/current.m3u8"),
+            )
+
+            self.assertTrue(source_path.exists())
+            self.assertFalse((Path(tmpdir) / "capture__retry1.mkv").exists())
+
+        self.assertFalse(
+            any(call.args and call.args[0] == "recording_artifact_preserved" for call in scheduler.store.log_info.call_args_list)
+        )
+
+    def test_convert_recording_keeps_failed_source_when_enabled(self) -> None:
+        scheduler = _SchedulerUnderTest()
+        scheduler.channel_service.get_channel.return_value = self.channel
+        scheduler.store.load_config.return_value = AppConfig(
+            delete_source_after_convert=True,
+            keep_failed_source=True,
+        )
+        scheduler.recorder.build_convert_command.return_value = ["ffmpeg", "-i", "in", "out"]
+
+        with TemporaryDirectory() as tmpdir, patch("subprocess.run") as run_mock:
+            source_path = Path(tmpdir) / "capture.mkv"
+            source_path.write_bytes(b"media")
+            mp4_path = Path(tmpdir) / "capture.mp4"
+            run_mock.return_value = MagicMock(returncode=0, stderr="")
+
+            scheduler._convert_recording(
+                self.channel.id,
+                source_path,
+                mp4_path,
+                failed_recording=True,
+            )
+
+            self.assertTrue(source_path.exists())
+
+    def test_convert_recording_deletes_failed_source_when_disabled(self) -> None:
+        scheduler = _SchedulerUnderTest()
+        scheduler.channel_service.get_channel.return_value = self.channel
+        scheduler.store.load_config.return_value = AppConfig(
+            delete_source_after_convert=True,
+            keep_failed_source=False,
+        )
+        scheduler.recorder.build_convert_command.return_value = ["ffmpeg", "-i", "in", "out"]
+
+        with TemporaryDirectory() as tmpdir, patch("subprocess.run") as run_mock:
+            source_path = Path(tmpdir) / "capture.mkv"
+            source_path.write_bytes(b"media")
+            mp4_path = Path(tmpdir) / "capture.mp4"
+            run_mock.return_value = MagicMock(returncode=0, stderr="")
+
+            scheduler._convert_recording(
+                self.channel.id,
+                source_path,
+                mp4_path,
+                failed_recording=True,
+            )
+
+            self.assertFalse(source_path.exists())
 
 
 if __name__ == "__main__":

@@ -93,6 +93,7 @@ class SchedulerRecoveryTests(unittest.TestCase):
             self.channel.id,
             part_path,
             Path("/organized") / self.channel.username / "capture.mp4",
+            failed_recording=True,
         )
 
 

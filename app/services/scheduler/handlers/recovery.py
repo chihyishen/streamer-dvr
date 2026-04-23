@@ -175,7 +175,7 @@ class RecoveryHandler:
                 source=str(source_path),
                 output=str(mp4_path),
             )
-            self.service._convert_recording(channel.id, source_path, mp4_path)
+            self.service._convert_recording(channel.id, source_path, mp4_path, failed_recording=True)
             self.sessions.complete(
                 session,
                 message="Recovered stale recording by conversion",
