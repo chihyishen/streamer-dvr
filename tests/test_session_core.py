@@ -89,6 +89,64 @@ class SessionCorePersistenceTests(unittest.TestCase):
             self.assertGreaterEqual(len(store.read_session_events(first.id)), 1)
             self.assertGreaterEqual(len(store.read_session_events(second.id)), 1)
 
+    def test_registry_skips_global_events_for_probe_noise_lifecycle(self) -> None:
+        with TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            store = JsonStore(
+                config_path=root / "config.json",
+                channels_path=root / "channels.json",
+                event_db_path=root / "events.db",
+                legacy_log_path=root / "events.jsonl",
+            )
+            store.ensure_files()
+            registry = RecordingSessionRegistry(store)
+
+            session = registry.open("alice", trigger="probe", metadata={"reason": "test"})
+            registry.transition(
+                session,
+                RecordingPhase.PROBING,
+                "Starting source resolution",
+                event_type="recording_session_probing",
+            )
+            registry.transition(
+                session,
+                RecordingPhase.SOURCE_RESOLUTION,
+                "Resolving",
+                event_type="recording_session_source_resolution",
+            )
+            registry.complete(session, message="Probe complete", outcome="aborted")
+
+            global_event_types = {item["event_type"] for item in store.read_recent_events(limit=20)}
+            self.assertFalse(global_event_types & {
+                "recording_session_started",
+                "recording_session_probing",
+                "recording_session_source_resolution",
+                "recording_session_completed",
+            })
+            session_event_types = {item.event_type for item in store.read_session_events(session.id)}
+            self.assertIn("recording_session_started", session_event_types)
+            self.assertIn("recording_session_probing", session_event_types)
+            self.assertIn("recording_session_source_resolution", session_event_types)
+            self.assertIn("recording_session_completed", session_event_types)
+
+    def test_registry_keeps_global_event_for_completed_probe_recording(self) -> None:
+        with TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            store = JsonStore(
+                config_path=root / "config.json",
+                channels_path=root / "channels.json",
+                event_db_path=root / "events.db",
+                legacy_log_path=root / "events.jsonl",
+            )
+            store.ensure_files()
+            registry = RecordingSessionRegistry(store)
+
+            session = registry.open("alice", trigger="probe", metadata={"reason": "test"})
+            registry.complete(session, message="Recording finished", outcome="completed")
+
+            global_events = store.read_recent_events(limit=20)
+            self.assertEqual([item["event_type"] for item in global_events], ["recording_session_completed"])
+
     def test_classify_recording_failure_treats_403_source_expired_as_source_unstable(self) -> None:
         category = classify_recording_failure(
             RecordingFailure(

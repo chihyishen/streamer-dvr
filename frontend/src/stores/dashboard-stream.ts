@@ -1,8 +1,12 @@
 import { apiUrl } from "../config";
 import type { BootstrapResponse } from "../types";
 
+const RECONNECT_INITIAL_DELAY_MS = 1500;
+const RECONNECT_MAX_DELAY_MS = 30000;
+
 let dashboardStream: EventSource | null = null;
 let reconnectTimer: number | null = null;
+let reconnectAttempt = 0;
 const listeners = new Set<(payload: BootstrapResponse) => void>();
 
 function clearReconnectTimer() {
@@ -12,6 +16,12 @@ function clearReconnectTimer() {
   }
 }
 
+function nextReconnectDelay() {
+  const delay = RECONNECT_INITIAL_DELAY_MS * Math.pow(2, reconnectAttempt);
+  reconnectAttempt += 1;
+  return Math.min(delay, RECONNECT_MAX_DELAY_MS);
+}
+
 function ensureDashboardStream() {
   if (dashboardStream) {
     return;
@@ -19,6 +29,7 @@ function ensureDashboardStream() {
 
   dashboardStream = new EventSource(apiUrl("/api/bootstrap/stream"));
   dashboardStream.onmessage = (event) => {
+    reconnectAttempt = 0;
     const payload = JSON.parse(event.data) as BootstrapResponse;
     listeners.forEach((listener) => listener(payload));
   };
@@ -33,19 +44,21 @@ function ensureDashboardStream() {
       if (listeners.size) {
         ensureDashboardStream();
       }
-    }, 1500);
+    }, nextReconnectDelay());
   };
 }
 
 export function connectDashboardStream(onPayload: (payload: BootstrapResponse) => void) {
   listeners.add(onPayload);
   clearReconnectTimer();
+  reconnectAttempt = 0;
   ensureDashboardStream();
 }
 
 export function disconnectDashboardStream() {
   listeners.clear();
   clearReconnectTimer();
+  reconnectAttempt = 0;
   if (dashboardStream) {
     dashboardStream.close();
     dashboardStream = null;

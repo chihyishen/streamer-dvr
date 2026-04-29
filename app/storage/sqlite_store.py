@@ -755,7 +755,16 @@ class SQLiteStore:
             """,
             (session_cutoff,),
         ).rowcount
-        return max(deleted_sessions, 0)
+        deleted_orphans = connection.execute(
+            """
+            DELETE FROM recording_sessions
+            WHERE status NOT IN ('completed', 'failed', 'aborted')
+              AND active_pid IS NULL
+              AND datetime(COALESCE(updated_at, created_at)) < datetime(?)
+            """,
+            (session_cutoff,),
+        ).rowcount
+        return max(deleted_sessions, 0) + max(deleted_orphans, 0)
 
     def _row_to_event_dict(self, row: sqlite3.Row) -> dict:
         payload = dict(row)

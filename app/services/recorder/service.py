@@ -139,10 +139,6 @@ class RecorderService:
 
     def should_refresh_stream_source(self, stderr: str, source_path) -> bool:
         lowered = stderr.lower()
-        source_candidates = [source_path, source_path.with_name(f"{source_path.name}.part")]
-        source_ready = any(candidate.exists() and candidate.stat().st_size > 0 for candidate in source_candidates)
-        if source_ready:
-            return False
         return (
             "#extm3u absent" in lowered
             or "failed to download m3u8 information" in lowered and "404" in lowered

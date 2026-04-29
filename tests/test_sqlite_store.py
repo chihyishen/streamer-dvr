@@ -337,6 +337,55 @@ class SqliteStoreTests(unittest.TestCase):
             with self.assertRaises(KeyError):
                 store.get_resolved_source("src-old")
 
+    def test_prune_retained_history_removes_stale_non_terminal_sessions(self) -> None:
+        with TemporaryDirectory() as tmpdir:
+            store = self._build_store(tmpdir)
+            store.ensure_files()
+
+            store.create_session(
+                RecordingSession(
+                    id="sess-stale-recording",
+                    channel_id="alice",
+                    status=RecordingSessionStatus.RECORDING,
+                    current_phase=RecordingSessionPhase.RECORDING,
+                    created_at="2026-03-20T01:00:00+08:00",
+                    updated_at="2026-03-20T01:30:00+08:00",
+                    started_at="2026-03-20T01:00:00+08:00",
+                    metadata={"reason": "orphaned by crash"},
+                )
+            )
+            store.create_session(
+                RecordingSession(
+                    id="sess-active-recording",
+                    channel_id="bob",
+                    status=RecordingSessionStatus.RECORDING,
+                    current_phase=RecordingSessionPhase.RECORDING,
+                    created_at="2026-04-07T11:00:00+08:00",
+                    updated_at="2026-04-07T11:55:00+08:00",
+                    started_at="2026-04-07T11:00:00+08:00",
+                    metadata={"reason": "still active"},
+                )
+            )
+            store.create_session(
+                RecordingSession(
+                    id="sess-old-with-pid",
+                    channel_id="carol",
+                    status=RecordingSessionStatus.RECORDING,
+                    current_phase=RecordingSessionPhase.RECORDING,
+                    created_at="2026-03-20T01:00:00+08:00",
+                    updated_at="2026-03-20T01:30:00+08:00",
+                    started_at="2026-03-20T01:00:00+08:00",
+                    active_pid=1234,
+                    metadata={"reason": "possibly still active"},
+                )
+            )
+
+            summary = store.prune_retained_history(now=datetime(2026, 4, 7, 12, 0, tzinfo=self.TZ))
+
+            self.assertEqual(summary["deleted_sessions"], 1)
+            remaining = {item.id for item in store.list_sessions(limit=20)}
+            self.assertEqual(remaining, {"sess-active-recording", "sess-old-with-pid"})
+
 
 if __name__ == "__main__":
     unittest.main()

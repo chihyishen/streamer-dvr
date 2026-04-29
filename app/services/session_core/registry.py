@@ -23,6 +23,15 @@ from .mappers import (
 from .models import FailureCategory, RecordingPhase, RecordingSession, ResolvedSource
 
 
+PROBE_NOISE_EVENT_TYPES = frozenset(
+    {
+        "recording_session_started",
+        "recording_session_probing",
+        "recording_session_source_resolution",
+    }
+)
+
+
 class RecordingSessionRegistry:
     ERROR_DEDUP_WINDOW = timedelta(minutes=20)
 
@@ -240,6 +249,8 @@ class RecordingSessionRegistry:
 
     def _should_suppress_global_event(self, event: Event) -> bool:
         if event.level.upper() != "ERROR":
+            if self._is_probe_noise_event(event):
+                return True
             return False
         try:
             recent = self.store.read_events(limit=20, channel_id=event.channel_id, level="ERROR")
@@ -268,3 +279,13 @@ class RecordingSessionRegistry:
             if event_time - item_time <= self.ERROR_DEDUP_WINDOW:
                 return True
         return False
+
+    def _is_probe_noise_event(self, event: Event) -> bool:
+        metadata = event.metadata or {}
+        if not isinstance(metadata, dict):
+            metadata = {}
+        if metadata.get("trigger") != "probe":
+            return False
+        if event.event_type in PROBE_NOISE_EVENT_TYPES:
+            return True
+        return event.event_type == "recording_session_completed" and metadata.get("outcome") == "aborted"

@@ -223,7 +223,7 @@ class SchedulerCaptureTests(unittest.TestCase):
             scheduler.channel_service.update_status.call_args_list,
         )
 
-    def test_wait_for_recording_preserves_existing_artifact_before_source_retry(self) -> None:
+    def test_wait_for_recording_converts_existing_artifact_before_source_retry(self) -> None:
         scheduler = _SchedulerUnderTest()
         scheduler._active_processes[self.channel.id] = object()
         scheduler.channel_service.get_channel.return_value = self.channel
@@ -241,6 +241,7 @@ class SchedulerCaptureTests(unittest.TestCase):
         refreshed_source = MagicMock(stream_url="https://edge.example/next.m3u8", room_status="public")
         scheduler.recorder.acquire_resolved_source.return_value = refreshed_source
         scheduler._start_recording = MagicMock()
+        scheduler._convert_recording = MagicMock()
 
         process = MagicMock()
         process.stderr = io.StringIO("HTTP error 502 Bad Gateway")
@@ -262,28 +263,34 @@ class SchedulerCaptureTests(unittest.TestCase):
                 resolved_source=resolved_source,
             )
 
-            preserved_path = Path(tmpdir) / "capture__retry1.mkv"
-            self.assertFalse(source_path.exists())
-            self.assertTrue(preserved_path.exists())
-            self.assertEqual(preserved_path.read_bytes(), b"partial-media")
+            retry_source_path = Path(tmpdir) / "capture__retry1.mkv"
+            retry_mp4_path = Path(tmpdir) / "capture__retry1.mp4"
 
+        scheduler._convert_recording.assert_called_once_with(
+            self.channel.id,
+            source_path,
+            mp4_path,
+            failed_recording=True,
+        )
         scheduler._start_recording.assert_called_once_with(
             self.channel.id,
-            prepared_paths=(source_path, mp4_path),
+            prepared_paths=(retry_source_path, retry_mp4_path),
             retry_attempt=1,
             session=session,
             resolved_source=refreshed_source,
         )
         scheduler.store.log_info.assert_any_call(
-            "recording_artifact_preserved",
-            "Preserved partial recording before source retry",
+            "recording_retry_segmented",
+            "Continuing recording in a new segment after source refresh",
             self.channel.id,
             source=str(source_path),
-            output=str(Path(tmpdir) / "capture__retry1.mkv"),
+            output=str(mp4_path),
+            next_source=str(retry_source_path),
+            next_output=str(retry_mp4_path),
             retry_attempt=1,
         )
 
-    def test_wait_for_recording_does_not_preserve_artifact_before_retry_when_disabled(self) -> None:
+    def test_wait_for_recording_uses_retry_segment_paths_after_partial_salvage(self) -> None:
         scheduler = _SchedulerUnderTest()
         scheduler._active_processes[self.channel.id] = object()
         scheduler.channel_service.get_channel.return_value = self.channel
@@ -303,6 +310,7 @@ class SchedulerCaptureTests(unittest.TestCase):
             room_status="public",
         )
         scheduler._start_recording = MagicMock()
+        scheduler._convert_recording = MagicMock()
 
         process = MagicMock()
         process.stderr = io.StringIO("HTTP error 502 Bad Gateway")
@@ -311,21 +319,30 @@ class SchedulerCaptureTests(unittest.TestCase):
         with TemporaryDirectory() as tmpdir:
             source_path = Path(tmpdir) / "capture.mkv"
             source_path.write_bytes(b"partial-media")
+            mp4_path = Path(tmpdir) / "capture.mp4"
             scheduler._wait_for_recording(
                 self.channel.id,
                 process,
                 source_path,
-                Path(tmpdir) / "capture.mp4",
+                mp4_path,
                 0,
                 session=MagicMock(id="sess-1", active_pid=1234),
                 resolved_source=MagicMock(room_status="public", stream_url="https://edge.example/current.m3u8"),
             )
 
-            self.assertTrue(source_path.exists())
-            self.assertFalse((Path(tmpdir) / "capture__retry1.mkv").exists())
+            retry_source_path = Path(tmpdir) / "capture__retry1.mkv"
+            retry_mp4_path = Path(tmpdir) / "capture__retry1.mp4"
 
-        self.assertFalse(
-            any(call.args and call.args[0] == "recording_artifact_preserved" for call in scheduler.store.log_info.call_args_list)
+        scheduler._convert_recording.assert_called_once_with(
+            self.channel.id,
+            source_path,
+            mp4_path,
+            failed_recording=True,
+        )
+        scheduler._start_recording.assert_called_once()
+        self.assertEqual(
+            scheduler._start_recording.call_args.kwargs["prepared_paths"],
+            (retry_source_path, retry_mp4_path),
         )
 
     def test_convert_recording_keeps_failed_source_when_enabled(self) -> None:
@@ -375,6 +392,31 @@ class SchedulerCaptureTests(unittest.TestCase):
             )
 
             self.assertFalse(source_path.exists())
+
+    def test_convert_recording_skips_status_update_when_channel_was_deleted(self) -> None:
+        scheduler = _SchedulerUnderTest()
+        scheduler.channel_service.get_channel.return_value = self.channel
+        scheduler.channel_service.update_status.side_effect = KeyError(self.channel.id)
+        scheduler.store.load_config.return_value = AppConfig(delete_source_after_convert=False)
+        scheduler.recorder.build_convert_command.return_value = ["ffmpeg", "-i", "in", "out"]
+
+        with TemporaryDirectory() as tmpdir, patch("subprocess.run") as run_mock:
+            source_path = Path(tmpdir) / "capture.mkv"
+            source_path.write_bytes(b"media")
+            mp4_path = Path(tmpdir) / "capture.mp4"
+            run_mock.return_value = MagicMock(returncode=0, stderr="")
+
+            scheduler._convert_recording(
+                self.channel.id,
+                source_path,
+                mp4_path,
+            )
+
+        scheduler.store.log_info.assert_any_call(
+            "channel_update_skipped",
+            "Channel status update skipped because channel no longer exists",
+            self.channel.id,
+        )
 
 
 if __name__ == "__main__":

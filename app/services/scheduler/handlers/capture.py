@@ -40,6 +40,12 @@ class CaptureHandler:
             collision_index += 1
         return candidate
 
+    def _retry_capture_paths(self, source_path: Path, mp4_path: Path, retry_attempt: int) -> tuple[Path, Path]:
+        return (
+            self._retry_artifact_path(source_path, retry_attempt),
+            self._retry_artifact_path(mp4_path, retry_attempt),
+        )
+
     def _preserve_retry_artifact(self, artifact_path: Path, retry_attempt: int) -> Path | None:
         preserved_path = self._retry_artifact_path(artifact_path, retry_attempt)
         try:
@@ -48,10 +54,21 @@ class CaptureHandler:
             return None
         return preserved_path
 
+    def _update_status_if_present(self, channel_id: str, **updates: object):
+        try:
+            return self.channel_service.update_status(channel_id, **updates)
+        except KeyError:
+            self.store.log_info(
+                "channel_update_skipped",
+                "Channel status update skipped because channel no longer exists",
+                channel_id,
+            )
+            return None
+
     def _clear_missing_recording_state(self, channel, channel_id: str, source_path: Path) -> None:
         if channel.last_recorded_file != str(source_path):
             return
-        self.channel_service.update_status(
+        self._update_status_if_present(
             channel_id,
             last_recorded_file=None,
             last_recorded_at=None,
@@ -98,7 +115,7 @@ class CaptureHandler:
     ) -> None:
         with self._record_lock:
             if channel_id in self._active_processes:
-                self.channel_service.update_status(channel_id, status=Status.RECORDING, last_error=None)
+                self._update_status_if_present(channel_id, status=Status.RECORDING, last_error=None)
                 return
             try:
                 channel = self.channel_service.get_channel(channel_id)
@@ -130,7 +147,7 @@ class CaptureHandler:
                     category = FailureCategory.UNKNOWN
                     fail_message = "Source resolution returned no result"
                 next_status = Status.PAUSED if channel.paused else (Status.IDLE if category == FailureCategory.PLATFORM_UNAVAILABLE else Status.ERROR)
-                self.channel_service.update_status(
+                self._update_status_if_present(
                     channel_id,
                     status=next_status,
                     last_error=None if category == FailureCategory.PLATFORM_UNAVAILABLE else fail_message,
@@ -173,7 +190,7 @@ class CaptureHandler:
             process = subprocess.Popen(command, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE, text=True)
 
             self._active_processes[channel_id] = process
-            self.channel_service.update_status(
+            updated_channel = self._update_status_if_present(
                 channel_id,
                 status=Status.RECORDING,
                 active_pid=process.pid,
@@ -181,6 +198,17 @@ class CaptureHandler:
                 last_recorded_file=str(source_path),
                 last_recorded_at=utc_now_iso(),
             )
+            if updated_channel is None:
+                self._active_processes.pop(channel_id, None)
+                if process.poll() is None:
+                    process.terminate()
+                self._complete_session(
+                    session,
+                    message="Recording abandoned because channel was removed",
+                    outcome="aborted",
+                    source_path=str(source_path),
+                )
+                return
             if session is not None:
                 session.active_pid = process.pid
             self._transition_session(
@@ -223,13 +251,21 @@ class CaptureHandler:
             return
 
         next_status = Status.PAUSED if channel.paused else Status.IDLE
-        self.channel_service.update_status(
+        updated_channel = self._update_status_if_present(
             channel_id,
             status=next_status,
             active_pid=None,
             next_check_at=compute_next_check_at(channel_id, channel.poll_interval_seconds),
             last_error=None if return_code == 0 else channel.last_error,
         )
+        if updated_channel is None:
+            self._complete_session(
+                session,
+                message="Recording abandoned because channel was removed",
+                outcome="aborted",
+                source_path=str(source_path),
+            )
+            return
 
         if session is not None:
             session.active_pid = None
@@ -259,21 +295,33 @@ class CaptureHandler:
                 FailureCategory.SOURCE_UNSTABLE,
                 FailureCategory.NETWORK_TRANSIENT,
             }
+            converted_retry_artifact_path = None
             if should_reacquire:
                 config = self.store.load_config()
-                if config.keep_failed_source:
-                    artifact_path = self.resolve_capture_artifact(source_path)
-                    if artifact_path is not None:
-                        preserved_path = self._preserve_retry_artifact(artifact_path, retry_attempt + 1)
-                        if preserved_path is not None:
-                            self.store.log_info(
-                                "recording_artifact_preserved",
-                                "Preserved partial recording before source retry",
-                                channel_id,
-                                source=str(artifact_path),
-                                output=str(preserved_path),
-                                retry_attempt=retry_attempt + 1,
-                            )
+                retry_source_path, retry_mp4_path = source_path, mp4_path
+                artifact_path = self.resolve_capture_artifact(source_path)
+                if artifact_path is not None:
+                    self._transition_session(
+                        session,
+                        RecordingPhase.CONVERTING,
+                        "Recording interrupted, salvaging segment before source retry",
+                        event_type="recording_session_converting",
+                        source_path=str(artifact_path),
+                        target_path=str(mp4_path),
+                    )
+                    self.service._convert_recording(channel_id, artifact_path, mp4_path, failed_recording=True)
+                    converted_retry_artifact_path = artifact_path
+                    retry_source_path, retry_mp4_path = self._retry_capture_paths(source_path, mp4_path, retry_attempt + 1)
+                    self.store.log_info(
+                        "recording_retry_segmented",
+                        "Continuing recording in a new segment after source refresh",
+                        channel_id,
+                        source=str(artifact_path),
+                        output=str(mp4_path),
+                        next_source=str(retry_source_path),
+                        next_output=str(retry_mp4_path),
+                        retry_attempt=retry_attempt + 1,
+                    )
                 delay = self.recorder.compute_source_retry_delay(retry_attempt + 1)
                 self._transition_session(
                     session,
@@ -294,7 +342,7 @@ class CaptureHandler:
                     self._attach_session_source(session, refreshed_source)
                     self.service._start_recording(
                         channel_id,
-                        prepared_paths=(source_path, mp4_path),
+                        prepared_paths=(retry_source_path, retry_mp4_path),
                         retry_attempt=retry_attempt + 1,
                         session=session,
                         resolved_source=refreshed_source,
@@ -302,7 +350,7 @@ class CaptureHandler:
                     return
             if category == FailureCategory.PLATFORM_UNAVAILABLE:
                 artifact_path = self.resolve_capture_artifact(source_path)
-                self.channel_service.update_status(
+                self._update_status_if_present(
                     channel_id,
                     status=Status.PAUSED if channel.paused else Status.IDLE,
                     active_pid=None,
@@ -313,7 +361,7 @@ class CaptureHandler:
                         failure_backoff_seconds(category.value),
                     ),
                 )
-                if artifact_path is not None:
+                if artifact_path is not None and artifact_path != converted_retry_artifact_path:
                     self._transition_session(
                         session,
                         RecordingPhase.CONVERTING,
@@ -337,7 +385,7 @@ class CaptureHandler:
                 )
                 return
             artifact_path = self.resolve_capture_artifact(source_path)
-            self.channel_service.update_status(
+            self._update_status_if_present(
                 channel_id,
                 status=Status.ERROR,
                 active_pid=None,
@@ -348,7 +396,7 @@ class CaptureHandler:
                     failure_backoff_seconds(category.value),
                 ),
             )
-            if artifact_path is not None:
+            if artifact_path is not None and artifact_path != converted_retry_artifact_path:
                 self._transition_session(
                     session,
                     RecordingPhase.CONVERTING,
@@ -436,7 +484,7 @@ class CaptureHandler:
             os.remove(source_path)
 
         # Only update file paths, do NOT touch status as it might be RECORDING again for a new session
-        self.channel_service.update_status(
+        self._update_status_if_present(
             channel_id,
             last_recorded_file=str(mp4_path),
             last_recorded_at=utc_now_iso(),

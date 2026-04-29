@@ -98,6 +98,18 @@ class RecorderServiceTests(unittest.TestCase):
 
         self.assertTrue(should_refresh)
 
+    def test_should_refresh_stream_source_returns_true_when_partial_artifact_exists(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            source_path = Path(tmpdir) / "capture.mkv"
+            source_path.write_bytes(b"partial-media")
+
+            should_refresh = self.service.should_refresh_stream_source(
+                "[https @ 0x0] HTTP error 404 Not Found",
+                source_path,
+            )
+
+        self.assertTrue(should_refresh)
+
     def test_should_refresh_stream_source_does_not_match_bare_503_in_url(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             source_path = Path(tmpdir) / "capture.mkv"
