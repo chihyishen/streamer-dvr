@@ -1,6 +1,9 @@
 from __future__ import annotations
 
 import unittest
+from datetime import datetime
+from unittest.mock import patch
+from zoneinfo import ZoneInfo
 
 from app.api.models import BootstrapResponse, ChannelListResponse, ChannelResponse, DeleteResponse, LogsResponse
 from app.api.serializers import serialize_bootstrap, serialize_channel, serialize_event, serialize_logs_response
@@ -28,6 +31,53 @@ class ApiModelsTests(unittest.TestCase):
         parsed = ChannelResponse.model_validate(payload)
         self.assertEqual(parsed.id, "alice")
         self.assertEqual(parsed.status_label, "offline")
+        self.assertEqual(payload["last_recording_duration_display"], "-")
+        self.assertIsNone(payload["last_recording_duration_seconds"])
+
+    def test_channel_duration_shows_current_recording_elapsed_time_only(self) -> None:
+        channel = Channel(
+            id="alice",
+            username="alice",
+            platform=Platform.CHATURBATE,
+            url="https://chaturbate.com/alice",
+            category="觀察",
+            enabled=True,
+            paused=False,
+            poll_interval_seconds=180,
+            filename_pattern="{streamer}_{started_at}.{ext}",
+            created_at=1,
+            status=Status.RECORDING,
+            last_recorded_at="2026-03-30T11:59:00+08:00",
+            last_recording_duration_seconds=3600,
+        )
+
+        with patch("app.api.serializers.utc_now", return_value=datetime(2026, 3, 30, 12, 0, 5, tzinfo=ZoneInfo("Asia/Taipei"))):
+            payload = serialize_channel(channel)
+
+        self.assertEqual(payload["last_recording_duration_seconds"], 65)
+        self.assertEqual(payload["last_recording_duration_display"], "1m 05s")
+
+    def test_channel_duration_keeps_previous_recording_when_idle(self) -> None:
+        channel = Channel(
+            id="alice",
+            username="alice",
+            platform=Platform.CHATURBATE,
+            url="https://chaturbate.com/alice",
+            category="觀察",
+            enabled=True,
+            paused=False,
+            poll_interval_seconds=180,
+            filename_pattern="{streamer}_{started_at}.{ext}",
+            created_at=1,
+            status=Status.IDLE,
+            last_recorded_at="2026-03-30T11:59:00+08:00",
+            last_recording_duration_seconds=3600,
+        )
+
+        payload = serialize_channel(channel)
+
+        self.assertEqual(payload["last_recording_duration_seconds"], 3600)
+        self.assertEqual(payload["last_recording_duration_display"], "1h 00m 00s")
 
     def test_channel_list_response_accepts_items_key(self) -> None:
         channel = Channel(

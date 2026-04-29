@@ -1,11 +1,12 @@
 from __future__ import annotations
 
 from collections import Counter
+from datetime import datetime
 from pathlib import Path
 from typing import Any
 
 from ..common.events import event_tone, summarize_event
-from ..common.time import format_display_time
+from ..common.time import format_display_time, utc_now
 from ..common.ui import display_status
 
 SOURCE_FAILURE_CATEGORIES = {
@@ -326,6 +327,22 @@ def _format_duration(seconds: int | None) -> str:
     return f"{secs}s"
 
 
+def _current_recording_duration_seconds(channel: dict[str, Any]) -> int | None:
+    status = _string_or_none(channel.get("status"))
+    if status != "recording":
+        value = channel.get("last_recording_duration_seconds")
+        return value if isinstance(value, int) else None
+    started_at = _string_or_none(channel.get("last_recorded_at"))
+    if not started_at:
+        return None
+    try:
+        started = datetime.fromisoformat(started_at)
+    except ValueError:
+        return None
+    elapsed = int((utc_now() - started).total_seconds())
+    return max(elapsed, 0)
+
+
 def serialize_channel(channel: Any) -> dict:
     data = _payload_dict(channel)
     status_val = data.get("status", "idle")
@@ -335,6 +352,8 @@ def serialize_channel(channel: Any) -> dict:
     data["last_checked_display"] = format_display_time(data.get("last_checked_at"))
     data["last_online_display"] = format_display_time(data.get("last_online_at"))
     data["last_recorded_display"] = format_display_time(data.get("last_recorded_at"))
+    if _string_or_none(data.get("status")) == "recording":
+        data["last_recording_duration_seconds"] = _current_recording_duration_seconds(data)
     data["last_recording_duration_display"] = _format_duration(data.get("last_recording_duration_seconds"))
     return data
 
