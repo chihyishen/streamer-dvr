@@ -38,9 +38,10 @@ class RecoveryHandler:
         for channel in self.channel_service.list_channels():
             if channel.active_pid and self.pid_exists(channel.active_pid):
                 if self.is_stalled_recording(channel):
+                    # SIGTERM only — let CaptureHandler's wait-for-exit run salvage,
+                    # otherwise both paths race on the same target mp4 and corrupt it.
                     self.terminate_stalled_recording(channel)
-                else:
-                    continue
+                continue
             if channel.status == Status.RECORDING or channel.active_pid:
                 self.recover_stale_recording(channel)
 
