@@ -111,7 +111,6 @@ class SchedulerService:
         if channel.active_pid and self._pid_exists(channel.active_pid):
             if self._is_stalled_recording(channel):
                 self._terminate_stalled_recording(channel)
-                self._recover_stale_recording(channel)
             return
 
         if is_internally_active:

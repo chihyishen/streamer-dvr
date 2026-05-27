@@ -4,6 +4,7 @@ import unittest
 from unittest.mock import MagicMock
 from unittest.mock import patch
 
+from app.domain import Status
 from app.services.scheduler.service import SchedulerService
 
 
@@ -83,6 +84,25 @@ class SchedulerServiceLoopIsolationTests(unittest.TestCase):
         self.assertEqual(args[0], "scheduler_channel_tick_failed")
         self.assertEqual(args[2], "a")
         self.assertEqual(kwargs.get("error_type"), "RuntimeError")
+
+
+class SchedulerServiceTickTests(unittest.TestCase):
+    def test_stalled_live_process_is_terminated_without_immediate_recovery(self) -> None:
+        channel = MagicMock(
+            id="alice",
+            active_pid=1234,
+            status=Status.RECORDING,
+        )
+        scheduler = SchedulerService(MagicMock(), MagicMock(), MagicMock())
+        scheduler._pid_exists = MagicMock(return_value=True)  # type: ignore[method-assign]
+        scheduler._is_stalled_recording = MagicMock(return_value=True)  # type: ignore[method-assign]
+        scheduler._terminate_stalled_recording = MagicMock()  # type: ignore[method-assign]
+        scheduler._recover_stale_recording = MagicMock()  # type: ignore[method-assign]
+
+        scheduler._tick_channel(channel)
+
+        scheduler._terminate_stalled_recording.assert_called_once_with(channel)
+        scheduler._recover_stale_recording.assert_not_called()
 
 
 if __name__ == "__main__":
