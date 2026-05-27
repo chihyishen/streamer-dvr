@@ -246,13 +246,13 @@ eval(function(p,a,c,k,e,d){return p;}('e=\'8://7.6/5-4-3-2-1/d.0\';c=\'8://7.6/5
 """
         openers = [_Opener([html]), _Opener([playlist])]
 
-        service = MissavRecordingService(
-            cookie_loader=lambda _domain: [_Cookie("sess", "abc")],
-            opener_factory=lambda *_args, **_kwargs: openers.pop(0),
-            process_launcher=lambda *_args, **_kwargs: process,
-        )
-
         with TemporaryDirectory() as tmpdir:
+            service = MissavRecordingService(
+                cookie_loader=lambda _domain: [_Cookie("sess", "abc")],
+                opener_factory=lambda *_args, **_kwargs: openers.pop(0),
+                process_launcher=lambda *_args, **_kwargs: process,
+                output_base_dir=Path(tmpdir) / "camrecs" / "av",
+            )
             service.start("https://missav.ai/sample-403", AppConfig(organized_dir=tmpdir))
 
         self.assertTrue(process.waited.wait(timeout=1))
@@ -285,14 +285,14 @@ eval(function(p,a,c,k,e,d){return p;}('e=\'8://7.6/5-4-3-2-1/d.0\';c=\'8://7.6/5
             commands.append(command)
             return _CompletedProcess(stdout=f"[generic] Dumping request\n{dump}\n", stderr="ERROR: Unsupported URL")
 
-        service = MissavRecordingService(
-            cookie_loader=lambda _domain: [_Cookie("sess", "abc")],
-            opener_factory=opener_factory,
-            process_launcher=launch,
-            yt_dlp_runner=yt_dlp_runner,
-        )
-
         with TemporaryDirectory() as tmpdir:
+            service = MissavRecordingService(
+                cookie_loader=lambda _domain: [_Cookie("sess", "abc")],
+                opener_factory=opener_factory,
+                process_launcher=launch,
+                yt_dlp_runner=yt_dlp_runner,
+                output_base_dir=Path(tmpdir) / "camrecs" / "av",
+            )
             service.start("https://missav.ai/sample-fallback", AppConfig(organized_dir=tmpdir))
 
         self.assertEqual(len(commands), 1)
@@ -309,14 +309,14 @@ eval(function(p,a,c,k,e,d){return p;}('e=\'8://7.6/5-4-3-2-1/d.0\';c=\'8://7.6/5
 """
         openers = [_Opener([playlist])]
 
-        service = MissavRecordingService(
-            cookie_loader=lambda _domain: [],
-            opener_factory=lambda *_args, **_kwargs: openers.pop(0),
-            process_launcher=lambda command, **kwargs: launched.append({"command": command, **kwargs}) or _Process(),
-            yt_dlp_runner=lambda *_args, **_kwargs: _CompletedProcess(stdout=f"{dump}\n", stderr="ERROR: Unsupported URL"),
-        )
-
         with TemporaryDirectory() as tmpdir:
+            service = MissavRecordingService(
+                cookie_loader=lambda _domain: [],
+                opener_factory=lambda *_args, **_kwargs: openers.pop(0),
+                process_launcher=lambda command, **kwargs: launched.append({"command": command, **kwargs}) or _Process(),
+                yt_dlp_runner=lambda *_args, **_kwargs: _CompletedProcess(stdout=f"{dump}\n", stderr="ERROR: Unsupported URL"),
+                output_base_dir=Path(tmpdir) / "camrecs" / "av",
+            )
             service.start("https://missav.ai/sample-fallback", AppConfig(organized_dir=tmpdir))
 
         self.assertIn("https://surrit.com/video-key/720p/video.m3u8", launched[0]["command"])
@@ -352,15 +352,15 @@ eval(function(p,a,c,k,e,d){return p;}('e=\'8://7.6/5-4-3-2-1/d.0\';c=\'8://7.6/5
             def open(self, _url: str):
                 raise urllib.error.HTTPError(_url, 403, "Forbidden", {}, None)
 
-        service = MissavRecordingService(
-            cookie_loader=lambda _domain: [],
-            opener_factory=lambda *_args, **_kwargs: ForbiddenOpener(),
-            process_launcher=lambda command, **kwargs: launched.append({"command": command, **kwargs}) or _Process(),
-            yt_dlp_runner=lambda *_args, **_kwargs: _CompletedProcess(stdout=f"{dump}\n", stderr="ERROR: Unsupported URL"),
-            curl_fetcher=lambda _url, **_kwargs: _CurlResponse(playlist, cookies={"__cf_bm": "token"}),
-        )
-
         with TemporaryDirectory() as tmpdir:
+            service = MissavRecordingService(
+                cookie_loader=lambda _domain: [],
+                opener_factory=lambda *_args, **_kwargs: ForbiddenOpener(),
+                process_launcher=lambda command, **kwargs: launched.append({"command": command, **kwargs}) or _Process(),
+                yt_dlp_runner=lambda *_args, **_kwargs: _CompletedProcess(stdout=f"{dump}\n", stderr="ERROR: Unsupported URL"),
+                curl_fetcher=lambda _url, **_kwargs: _CurlResponse(playlist, cookies={"__cf_bm": "token"}),
+                output_base_dir=Path(tmpdir) / "camrecs" / "av",
+            )
             service.start("https://missav.ai/sample-fallback", AppConfig(organized_dir=tmpdir))
 
         command = launched[0]["command"]
