@@ -97,6 +97,17 @@ class DeleteResponse(BaseModel):
     ok: bool
 
 
+class ManualRecordingRequest(BaseModel):
+    url: str
+
+
+class ManualRecordingResponse(BaseModel):
+    ok: bool
+    pid: int
+    output_path: str
+    log_path: str
+
+
 class LogsResponse(BaseModel):
     items: list[EventItem]
     sessions: list[SessionSummary] = Field(default_factory=list)

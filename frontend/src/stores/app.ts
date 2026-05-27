@@ -138,5 +138,15 @@ export const useAppStore = defineStore("app", {
         throw error;
       }
     },
+    async startMissavRecording(payload: { url: string }) {
+      try {
+        const job = await api.startMissavRecording(payload);
+        this.pushToast("success", `MissAV recording started · PID ${job.pid}`);
+        return job;
+      } catch (error) {
+        this.pushToast("error", this.formatError(error));
+        throw error;
+      }
+    },
   },
 });

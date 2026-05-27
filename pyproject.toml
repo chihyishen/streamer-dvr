@@ -5,9 +5,10 @@ description = "Self-hosted live stream recorder with a web dashboard."
 requires-python = ">=3.13"
 dependencies = [
   "browser-cookie3>=0.20.0,<1.0.0",
+  "curl-cffi>=0.14.0,<0.15.0",
   "fastapi>=0.115.0,<1.0.0",
   "pydantic>=2.10.0,<3.0.0",
-  "yt-dlp>=2025.0.0,<2026.0.0",
+  "yt-dlp>=2026.3.17,<2027.0.0",
   "uvicorn>=0.34.0,<1.0.0"
 ]
 

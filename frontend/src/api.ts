@@ -1,5 +1,5 @@
 import { apiUrl } from "./config";
-import type { AppConfig, BootstrapResponse, Channel, LogsResponse } from "./types";
+import type { AppConfig, BootstrapResponse, Channel, LogsResponse, ManualRecordingResponse } from "./types";
 
 async function request<T>(input: string, init?: RequestInit): Promise<T> {
   const response = await fetch(apiUrl(input), {
@@ -59,6 +59,12 @@ export const api = {
   saveSettings(payload: AppConfig) {
     return request<AppConfig>("/api/settings", {
       method: "PUT",
+      body: JSON.stringify(payload),
+    });
+  },
+  startMissavRecording(payload: { url: string }) {
+    return request<ManualRecordingResponse>("/api/manual-recordings/missav", {
+      method: "POST",
       body: JSON.stringify(payload),
     });
   },

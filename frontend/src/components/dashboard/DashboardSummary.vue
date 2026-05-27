@@ -6,6 +6,7 @@
       </div>
       <div class="toolbar top-actions">
         <div class="refresh-note" v-if="isRefreshing">Refreshing...</div>
+        <button class="button ghost" @click="$emit('manualRecording')">MissAV</button>
         <button class="button" @click="$emit('add')">Add streamer</button>
         <button class="button ghost" @click="$emit('settings')">Settings</button>
       </div>
@@ -49,6 +50,7 @@ defineProps<{
 
 defineEmits<{
   add: [];
+  manualRecording: [];
   settings: [];
 }>();
 </script>
@@ -149,7 +151,7 @@ defineEmits<{
 
   .top-actions {
     display: grid;
-    grid-template-columns: 1fr 1fr;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
     width: 100%;
     gap: 8px;
   }

@@ -5,12 +5,34 @@ from datetime import datetime
 from unittest.mock import patch
 from zoneinfo import ZoneInfo
 
-from app.api.models import BootstrapResponse, ChannelListResponse, ChannelResponse, DeleteResponse, LogsResponse
+from app.api.models import (
+    BootstrapResponse,
+    ChannelListResponse,
+    ChannelResponse,
+    DeleteResponse,
+    LogsResponse,
+    ManualRecordingRequest,
+    ManualRecordingResponse,
+)
 from app.api.serializers import serialize_bootstrap, serialize_channel, serialize_event, serialize_logs_response
 from app.domain import Channel, Platform, Status
 
 
 class ApiModelsTests(unittest.TestCase):
+    def test_manual_recording_models_accept_missav_job_payload(self) -> None:
+        request = ManualRecordingRequest.model_validate({"url": "https://missav.ai/dm421/sample-123"})
+        response = ManualRecordingResponse.model_validate(
+            {
+                "ok": True,
+                "pid": 4321,
+                "output_path": "/organized/MissAV/sample-123.mp4",
+                "log_path": "/organized/MissAV/sample-123.log",
+            }
+        )
+
+        self.assertEqual(request.url, "https://missav.ai/dm421/sample-123")
+        self.assertEqual(response.pid, 4321)
+
     def test_channel_response_accepts_serialized_channel_payload(self) -> None:
         channel = Channel(
             id="alice",

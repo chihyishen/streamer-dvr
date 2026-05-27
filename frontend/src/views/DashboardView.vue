@@ -5,6 +5,7 @@
         :summary-counts="summaryCounts"
         :is-refreshing="store.loading"
         @add="showAdd = true"
+        @manual-recording="showMissavRecording = true"
         @settings="openSettings"
       />
     </div>
@@ -61,6 +62,14 @@
       @submit="submitSettings"
     />
 
+    <MissavRecordingModal
+      :open="showMissavRecording"
+      :draft="missavForm"
+      :submitting="missavSubmitting"
+      @close="showMissavRecording = false"
+      @submit="submitMissavRecording"
+    />
+
     <ChannelFormModal
       :open="!!editDraft"
       title="Edit Streamer"
@@ -88,6 +97,7 @@ import ChannelCard from "../components/dashboard/ChannelCard.vue";
 import ChannelFormModal from "../components/dashboard/ChannelFormModal.vue";
 import DashboardSummary from "../components/dashboard/DashboardSummary.vue";
 import DeleteConfirmModal from "../components/dashboard/DeleteConfirmModal.vue";
+import MissavRecordingModal from "../components/dashboard/MissavRecordingModal.vue";
 import SettingsModal from "../components/dashboard/SettingsModal.vue";
 import { useDashboardPage } from "../composables/useDashboardPage";
 
@@ -95,17 +105,21 @@ const {
   store,
   selectedCategory,
   showAdd,
+  showMissavRecording,
+  missavSubmitting,
   showSettings,
   settingsDraft,
   editDraft,
   deleteDraft,
   addForm,
+  missavForm,
   filteredChannels,
   summaryCounts,
   openSettings,
   startEdit,
   confirmDelete,
   submitAdd,
+  submitMissavRecording,
   submitSettings,
   submitEdit,
   submitDelete,

@@ -14,6 +14,8 @@ export function useDashboardPage() {
   const store = useAppStore();
   const selectedCategory = ref("default");
   const showAdd = ref(false);
+  const showMissavRecording = ref(false);
+  const missavSubmitting = ref(false);
   const showSettings = ref(false);
   const settingsDraft = ref<AppConfig | null>(null);
   const editDraft = ref<Record<string, any> | null>(null);
@@ -25,6 +27,9 @@ export function useDashboardPage() {
     category: "default",
     poll_interval_seconds: 300,
     paused: false,
+  });
+  const missavForm = reactive({
+    url: "",
   });
 
   const filteredChannels = computed(() => {
@@ -100,6 +105,20 @@ export function useDashboardPage() {
     syncCategory();
   }
 
+  async function submitMissavRecording() {
+    if (!missavForm.url) {
+      return;
+    }
+    missavSubmitting.value = true;
+    try {
+      await store.startMissavRecording({ url: missavForm.url });
+      missavForm.url = "";
+      showMissavRecording.value = false;
+    } finally {
+      missavSubmitting.value = false;
+    }
+  }
+
   async function submitSettings() {
     if (!settingsDraft.value) {
       return;
@@ -142,17 +161,21 @@ export function useDashboardPage() {
     store,
     selectedCategory,
     showAdd,
+    showMissavRecording,
+    missavSubmitting,
     showSettings,
     settingsDraft,
     editDraft,
     deleteDraft,
     addForm,
+    missavForm,
     filteredChannels,
     summaryCounts,
     openSettings,
     startEdit,
     confirmDelete,
     submitAdd,
+    submitMissavRecording,
     submitSettings,
     submitEdit,
     submitDelete,

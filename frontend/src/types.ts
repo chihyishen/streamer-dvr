@@ -117,6 +117,13 @@ export interface LogsResponse {
   has_next: boolean;
 }
 
+export interface ManualRecordingResponse {
+  ok: boolean;
+  pid: number;
+  output_path: string;
+  log_path: string;
+}
+
 export interface BootstrapResponse {
   channels: Channel[];
   sessions: SessionSummary[];

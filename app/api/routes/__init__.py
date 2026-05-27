@@ -2,6 +2,7 @@ from .bootstrap import register_bootstrap_routes
 from .channels import register_channel_routes
 from .health import register_health_routes
 from .logs import register_log_routes
+from .manual_recordings import register_manual_recording_routes
 from .settings import register_settings_routes
 
 __all__ = [
@@ -9,5 +10,6 @@ __all__ = [
     "register_channel_routes",
     "register_health_routes",
     "register_log_routes",
+    "register_manual_recording_routes",
     "register_settings_routes",
 ]

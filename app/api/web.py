@@ -14,6 +14,7 @@ from .routes import (
     register_channel_routes,
     register_health_routes,
     register_log_routes,
+    register_manual_recording_routes,
     register_settings_routes,
 )
 
@@ -36,6 +37,7 @@ def create_app(
     register_bootstrap_routes(app, store=store, channel_service=channel_service)
     register_channel_routes(app, store=store, channel_service=channel_service)
     register_log_routes(app, store=store, channel_service=channel_service)
+    register_manual_recording_routes(app, store=store)
     register_settings_routes(app, store=store, config_service=config_service)
     register_health_routes(app)
 
