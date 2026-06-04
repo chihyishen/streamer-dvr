@@ -354,7 +354,7 @@ class SchedulerCaptureTests(unittest.TestCase):
         )
         scheduler.recorder.build_convert_command.return_value = ["ffmpeg", "-i", "in", "out"]
 
-        with TemporaryDirectory() as tmpdir, patch("subprocess.run") as run_mock:
+        with TemporaryDirectory() as tmpdir, patch("subprocess.run") as run_mock, patch("os.replace"):
             source_path = Path(tmpdir) / "capture.mkv"
             source_path.write_bytes(b"media")
             mp4_path = Path(tmpdir) / "capture.mp4"
@@ -378,7 +378,7 @@ class SchedulerCaptureTests(unittest.TestCase):
         )
         scheduler.recorder.build_convert_command.return_value = ["ffmpeg", "-i", "in", "out"]
 
-        with TemporaryDirectory() as tmpdir, patch("subprocess.run") as run_mock:
+        with TemporaryDirectory() as tmpdir, patch("subprocess.run") as run_mock, patch("os.replace"):
             source_path = Path(tmpdir) / "capture.mkv"
             source_path.write_bytes(b"media")
             mp4_path = Path(tmpdir) / "capture.mp4"
@@ -400,7 +400,7 @@ class SchedulerCaptureTests(unittest.TestCase):
         scheduler.store.load_config.return_value = AppConfig(delete_source_after_convert=False)
         scheduler.recorder.build_convert_command.return_value = ["ffmpeg", "-i", "in", "out"]
 
-        with TemporaryDirectory() as tmpdir, patch("subprocess.run") as run_mock:
+        with TemporaryDirectory() as tmpdir, patch("subprocess.run") as run_mock, patch("os.replace"):
             source_path = Path(tmpdir) / "capture.mkv"
             source_path.write_bytes(b"media")
             mp4_path = Path(tmpdir) / "capture.mp4"
@@ -417,6 +417,108 @@ class SchedulerCaptureTests(unittest.TestCase):
             "Channel status update skipped because channel no longer exists",
             self.channel.id,
         )
+
+
+    def test_convert_recording_writes_to_temp_then_atomically_replaces(self) -> None:
+        # Conversion must never write the final mp4 directly: two conversions
+        # racing on the same target (capture finalize + stale recovery) would
+        # interleave their writes and corrupt the file. Write to a unique temp
+        # path, then os.replace it into place atomically.
+        scheduler = _SchedulerUnderTest()
+        scheduler.channel_service.get_channel.return_value = self.channel
+        scheduler.store.load_config.return_value = AppConfig()
+        scheduler.recorder.build_convert_command.return_value = ["ffmpeg", "-i", "src", "out"]
+
+        source_path = Path("/tmp/capture.mkv")
+        mp4_path = Path("/tmp/organized/alice/capture.mp4")
+        run_result = MagicMock(returncode=0, stderr="")
+
+        with patch("subprocess.run", return_value=run_result) as run_mock, \
+                patch("os.replace") as replace_mock, \
+                patch("pathlib.Path.mkdir"):
+            scheduler._convert_recording(self.channel.id, source_path, mp4_path)
+
+        build_args = scheduler.recorder.build_convert_command.call_args.args
+        temp_target = build_args[1]
+        self.assertNotEqual(temp_target, mp4_path)
+        self.assertEqual(temp_target.parent, mp4_path.parent)
+        self.assertEqual(temp_target.suffix, ".mp4")
+        run_mock.assert_called_once()
+        replace_mock.assert_called_once_with(temp_target, mp4_path)
+
+    def test_wait_for_recording_keeps_channel_registered_until_conversion_done(self) -> None:
+        # The channel must stay in _active_processes through conversion so that
+        # RecoveryHandler won't launch a competing conversion mid-finalize. The
+        # entry is dropped only after finalization completes.
+        scheduler = _SchedulerUnderTest()
+        scheduler.channel_service.get_channel.return_value = self.channel
+        scheduler.store.load_config.return_value = AppConfig()
+
+        process = MagicMock()
+        process.stderr = io.StringIO("")
+        process.wait.return_value = 0
+        scheduler._active_processes[self.channel.id] = process
+
+        seen = {}
+
+        def convert_side_effect(*args, **kwargs):
+            with scheduler._record_lock:
+                seen["registered_during_convert"] = self.channel.id in scheduler._active_processes
+
+        scheduler._convert_recording = MagicMock(side_effect=convert_side_effect)
+
+        with TemporaryDirectory() as tmpdir:
+            source_path = Path(tmpdir) / "capture.mkv"
+            source_path.write_bytes(b"media")
+            mp4_path = Path(tmpdir) / "capture.mp4"
+            scheduler._wait_for_recording(
+                self.channel.id,
+                process,
+                source_path,
+                mp4_path,
+                0,
+                session=MagicMock(id="sess-1", active_pid=1234),
+                resolved_source=MagicMock(room_status="public", stream_url="https://edge.example/live.m3u8"),
+            )
+
+        self.assertTrue(seen["registered_during_convert"])
+        self.assertNotIn(self.channel.id, scheduler._active_processes)
+
+    def test_wait_for_recording_preserves_replacement_process_from_segmented_retry(self) -> None:
+        # The segmented-retry path starts a new recording for the same channel
+        # during finalization, replacing the _active_processes entry. The old
+        # finalizer's cleanup must not deregister that fresh recording.
+        scheduler = _SchedulerUnderTest()
+        scheduler.channel_service.get_channel.return_value = self.channel
+        scheduler.store.load_config.return_value = AppConfig()
+
+        old_process = MagicMock()
+        old_process.stderr = io.StringIO("")
+        old_process.wait.return_value = 0
+        scheduler._active_processes[self.channel.id] = old_process
+
+        new_process = object()
+
+        def convert_side_effect(*args, **kwargs):
+            scheduler._active_processes[self.channel.id] = new_process
+
+        scheduler._convert_recording = MagicMock(side_effect=convert_side_effect)
+
+        with TemporaryDirectory() as tmpdir:
+            source_path = Path(tmpdir) / "capture.mkv"
+            source_path.write_bytes(b"media")
+            mp4_path = Path(tmpdir) / "capture.mp4"
+            scheduler._wait_for_recording(
+                self.channel.id,
+                old_process,
+                source_path,
+                mp4_path,
+                0,
+                session=MagicMock(id="sess-1", active_pid=1234),
+                resolved_source=MagicMock(room_status="public", stream_url="https://edge.example/live.m3u8"),
+            )
+
+        self.assertIs(scheduler._active_processes.get(self.channel.id), new_process)
 
 
 if __name__ == "__main__":

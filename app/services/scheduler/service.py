@@ -44,7 +44,8 @@ class SchedulerService:
             store, channel_service, self._record_lock, self._active_processes, self._probe
         )
         self._recovery = RecoveryHandler(
-            store, channel_service, self.sessions, self.STALLED_RECORDING_SECONDS, self
+            store, channel_service, self.sessions, self.STALLED_RECORDING_SECONDS, self,
+            self._record_lock, self._active_processes,
         )
 
     def start(self) -> None:

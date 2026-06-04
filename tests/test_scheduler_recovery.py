@@ -21,6 +21,7 @@ class _SchedulerUnderTest:
         self.channel_service = MagicMock()
         self.sessions = MagicMock()
         self._record_lock = threading.RLock()
+        self._active_processes: dict[str, object] = {}
         self._convert_recording = MagicMock()
         self.handler = RecoveryHandler(
             self.store,
@@ -28,6 +29,8 @@ class _SchedulerUnderTest:
             self.sessions,
             self.STALLED_RECORDING_SECONDS,
             self,
+            self._record_lock,
+            self._active_processes,
         )
 
     def _resolve_capture_artifact(self, source_path: Path) -> Path | None:
@@ -95,6 +98,36 @@ class SchedulerRecoveryTests(unittest.TestCase):
             Path("/organized") / self.channel.username / "capture.mp4",
             failed_recording=True,
         )
+
+    def test_reconcile_skips_recovery_while_capture_thread_owns_channel(self) -> None:
+        # A recording that just exited naturally: the OS pid is gone, but the
+        # capture thread is still finalizing/converting and the channel is still
+        # in _active_processes. Recovery must NOT start a second conversion or it
+        # races the capture thread on the same target mp4 and corrupts it.
+        scheduler = _SchedulerUnderTest()
+        scheduler.channel_service.list_channels.return_value = [self.channel]
+        self.channel.status = Status.RECORDING
+        self.channel.active_pid = 4321
+        scheduler._active_processes[self.channel.id] = object()
+        scheduler.handler.pid_exists = MagicMock(return_value=False)
+        scheduler.handler.recover_stale_recording = MagicMock()
+
+        scheduler.handler.reconcile_channels()
+
+        scheduler.handler.recover_stale_recording.assert_not_called()
+
+    def test_reconcile_recovers_when_no_capture_thread_owns_channel(self) -> None:
+        scheduler = _SchedulerUnderTest()
+        scheduler.channel_service.list_channels.return_value = [self.channel]
+        self.channel.status = Status.RECORDING
+        self.channel.active_pid = 4321
+        # _active_processes is empty: no capture thread is finalizing this channel.
+        scheduler.handler.pid_exists = MagicMock(return_value=False)
+        scheduler.handler.recover_stale_recording = MagicMock()
+
+        scheduler.handler.reconcile_channels()
+
+        scheduler.handler.recover_stale_recording.assert_called_once_with(self.channel)
 
 
 if __name__ == "__main__":

@@ -20,12 +20,14 @@ from app.services.session_core import FailureCategory, RecordingPhase
 
 
 class RecoveryHandler:
-    def __init__(self, store, channel_service, sessions, stalled_recording_seconds, service) -> None:
+    def __init__(self, store, channel_service, sessions, stalled_recording_seconds, service, record_lock, active_processes) -> None:
         self.store = store
         self.channel_service = channel_service
         self.sessions = sessions
         self.STALLED_RECORDING_SECONDS = stalled_recording_seconds
         self.service = service
+        self._record_lock = record_lock
+        self._active_processes = active_processes
 
     def pid_exists(self, pid: int) -> bool:
         try:
@@ -43,6 +45,15 @@ class RecoveryHandler:
                     self.terminate_stalled_recording(channel)
                 continue
             if channel.status == Status.RECORDING or channel.active_pid:
+                with self._record_lock:
+                    capture_owns = channel.id in self._active_processes
+                if capture_owns:
+                    # A capture thread still owns this channel — it is recording,
+                    # finalizing, or converting (the entry lives until conversion
+                    # completes). Recovering here would launch a second conversion
+                    # racing the capture thread on the same target mp4 and corrupt
+                    # the output. Leave it to the capture thread.
+                    continue
                 self.recover_stale_recording(channel)
 
     def schedule_startup_warmup_checks(self) -> None:

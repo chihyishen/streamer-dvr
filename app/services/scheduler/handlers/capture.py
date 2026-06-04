@@ -3,6 +3,7 @@ from __future__ import annotations
 import os
 import subprocess
 import threading
+import uuid
 from pathlib import Path
 
 from app.common import compute_next_check_at, failure_backoff_seconds, utc_now_iso
@@ -242,9 +243,41 @@ class CaptureHandler:
             stderr = process.stderr.read()
         return_code = process.wait()
 
-        with self._record_lock:
-            self._active_processes.pop(channel_id, None)
+        # Keep the channel registered in _active_processes until finalization
+        # (including conversion) finishes. RecoveryHandler treats membership as
+        # "a capture thread owns this channel" and skips stale recovery; popping
+        # before conversion would let recovery race us on the same target mp4.
+        try:
+            self._finalize_recording(
+                channel_id,
+                source_path,
+                mp4_path,
+                retry_attempt,
+                return_code,
+                stderr,
+                session,
+                resolved_source,
+            )
+        finally:
+            with self._record_lock:
+                # Only drop the entry if it is still ours. The segmented-retry
+                # path starts a new recording for the same channel during
+                # finalization, which replaces this entry with a fresh process;
+                # popping unconditionally would deregister that new recording.
+                if self._active_processes.get(channel_id) is process:
+                    self._active_processes.pop(channel_id, None)
 
+    def _finalize_recording(
+        self,
+        channel_id: str,
+        source_path: Path,
+        mp4_path: Path,
+        retry_attempt: int,
+        return_code: int,
+        stderr: str,
+        session=None,
+        resolved_source: ResolvedSource | None = None,
+    ) -> None:
         try:
             channel = self.channel_service.get_channel(channel_id)
         except KeyError:
@@ -453,12 +486,20 @@ class CaptureHandler:
         except KeyError:
             return
         config = self.store.load_config()
+        # Never write the final mp4 directly. Convert into a unique temp file in
+        # the same directory, then os.replace it into place atomically. If two
+        # conversions ever target the same recording (e.g. capture finalize and
+        # stale recovery racing), they write distinct temp files and the rename
+        # makes the last one win cleanly instead of interleaving into a corrupt
+        # output. (The `.mp4` suffix is kept so ffmpeg still infers the format.)
+        temp_target = mp4_path.with_name(f".{mp4_path.stem}.{uuid.uuid4().hex}.tmp.mp4")
         try:
             mp4_path.parent.mkdir(parents=True, exist_ok=True)
-            command = self.recorder.build_convert_command(source_path, mp4_path)
+            command = self.recorder.build_convert_command(source_path, temp_target)
             result = subprocess.run(command, capture_output=True, text=True, timeout=config.convert_timeout_seconds, check=False)
         except FileNotFoundError:
             self.store.log_error(ErrorCode.DEPENDENCY_MISSING.value, "ffmpeg not found", channel_id, raw_output="ffmpeg not found")
+            self._cleanup_temp(temp_target)
             return
         except subprocess.TimeoutExpired:
             self.store.log_error(
@@ -467,6 +508,7 @@ class CaptureHandler:
                 channel_id,
                 raw_output=f"Probe process timed out after {config.convert_timeout_seconds}s",
             )
+            self._cleanup_temp(temp_target)
             return
 
         if result.returncode != 0:
@@ -477,7 +519,10 @@ class CaptureHandler:
                 raw_output=result.stderr.strip() or None,
                 return_code=result.returncode,
             )
+            self._cleanup_temp(temp_target)
             return
+
+        os.replace(temp_target, mp4_path)
 
         should_delete_source = config.delete_source_after_convert and (not failed_recording or not config.keep_failed_source)
         if should_delete_source and source_path.exists():
@@ -491,3 +536,9 @@ class CaptureHandler:
             last_recording_duration_seconds=duration_seconds,
         )
         self.store.log_info("convert_completed", "Recording converted to MP4", channel_id, output=str(mp4_path))
+
+    def _cleanup_temp(self, temp_target: Path) -> None:
+        try:
+            temp_target.unlink()
+        except OSError:
+            pass
