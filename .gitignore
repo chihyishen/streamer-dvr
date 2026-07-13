@@ -13,12 +13,16 @@ frontend/node_modules/
 frontend/dist/
 .eslintcache
 *.log
+logs/
 
 # --- Project Specific Data (Sensitive) ---
 streamer_cookies.txt
 config.json
 channels.json
 events.db
+events.db.bak*
+events.db-wal
+events.db-shm
 events.jsonl
 *.lock
 *.log
@@ -40,4 +44,6 @@ TODO.md
 # --- OS Specific ---
 .DS_Store
 Thumbs.db
-\n# Chaturbate local credentials\napp/platform/chaturbate_cookies.txt
+
+# Chaturbate local credentials
+app/platform/chaturbate_cookies.txt

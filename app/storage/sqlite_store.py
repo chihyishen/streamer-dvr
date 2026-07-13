@@ -8,6 +8,7 @@ from pathlib import Path
 from threading import RLock
 
 from ..common import utc_now, utc_now_iso
+from ..common.observability import emit_event_log
 from ..core import CHANNELS_PATH, CONFIG_PATH, EVENT_DB_PATH, LEGACY_LOG_PATH
 from ..domain import (
     AppConfig,
@@ -150,6 +151,7 @@ class SQLiteStore:
         with self._lock:
             self._ensure_ready_unlocked()
             self._insert_events([event])
+        emit_event_log(event)
 
     def log_info(self, event_type: str, message: str, channel_id: str | None = None, **metadata: object) -> None:
         self._log_event("INFO", event_type, message, channel_id, **metadata)

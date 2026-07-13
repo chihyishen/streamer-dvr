@@ -25,7 +25,11 @@ A self-hosted, automated live stream recorder and archiver, built with Python (F
 - **Worker**: Multi-threaded scheduler and recorder process
 - **Frontend**: Vue 3 + Vite
 - **Core Tools**: `yt-dlp` for stream capture, `ffmpeg` for remuxing
-- **Persistence**: SQLite (Events) + JSON (Channels & Config)
+- **Persistence**: SQLite for settings, channels, events, commands, and recording sessions
+- **Operations logs**: PM2 writes raw API and worker logs to `logs/`; each SQLite
+  event is also emitted as one best-effort JSON line on stdout for the optional
+  Home Service Hub Collector integration. SQLite remains authoritative and the
+  Vue Logs page reads SQLite unchanged.
 
 ## Prerequisites
 
@@ -50,8 +54,10 @@ npm install --prefix frontend
 
 ### 2. Configuration
 
-On first start the app will create `config.json` and `channels.json` automatically.
-If you want to customize paths up front, copy the example config and edit it before launching:
+Runtime settings and channels are stored in `events.db`. On the first startup of
+an empty database, existing `config.json`, `channels.json`, and `events.jsonl`
+files are imported for backward compatibility. To seed a fresh installation,
+copy the example config before the first launch:
 
 ```bash
 cp config.json.example config.json
@@ -94,6 +100,13 @@ npm run build --prefix frontend
 ```
 
 Open the dashboard at `http://127.0.0.1:8787`.
+
+The PM2 processes use stable files `logs/api.out.log`, `logs/api.err.log`,
+`logs/worker.out.log`, and `logs/worker.err.log`. The Home Service Hub Compose
+stack may mount only this `logs/` directory read-only at
+`/var/log/streamer-dvr`; no Streamer DVR port is required for log ingestion.
+Existing PM2 processes keep their previous log destinations until they are
+reloaded or restarted from the updated `ecosystem.config.js`.
 
 ### System Dependencies
 

@@ -1,12 +1,16 @@
 from __future__ import annotations
 
+import io
 import json
 import unittest
+from contextlib import redirect_stdout
 from datetime import datetime
 from pathlib import Path
 from tempfile import TemporaryDirectory
+from unittest.mock import patch
 from zoneinfo import ZoneInfo
 
+from app.common.observability import emit_event_log as real_emit_event_log
 from app.domain import (
     AppConfig,
     Channel,
@@ -26,6 +30,11 @@ from app.storage import JsonStore
 
 class SqliteStoreTests(unittest.TestCase):
     TZ = ZoneInfo("Asia/Taipei")
+
+    def setUp(self) -> None:
+        emitter_patch = patch("app.storage.sqlite_store.emit_event_log")
+        self.emit_event_log = emitter_patch.start()
+        self.addCleanup(emitter_patch.stop)
 
     def _build_store(self, tmpdir: str) -> JsonStore:
         base = Path(tmpdir)
@@ -175,6 +184,46 @@ class SqliteStoreTests(unittest.TestCase):
             self.assertEqual(events[0]["metadata"], {"pid": 5678})
             self.assertEqual(events[1]["level"], "INFO")
             self.assertEqual(events[1]["metadata"], {"pid": 1234})
+
+    def test_append_event_emits_one_json_line_after_sqlite_write(self) -> None:
+        with TemporaryDirectory() as tmpdir:
+            store = self._build_store(tmpdir)
+            event = Event(
+                timestamp="2026-04-07T01:00:00+08:00",
+                level="ERROR",
+                event_type="recording_failed",
+                channel_id="alice",
+                message="capture failed",
+                metadata={"return_code": 1},
+            )
+
+            self.emit_event_log.side_effect = real_emit_event_log
+            output = io.StringIO()
+            with redirect_stdout(output):
+                store.append_event(event)
+
+            emitted = json.loads(output.getvalue())
+            self.assertEqual(emitted["event_type"], "recording_failed")
+            self.assertEqual(emitted["service_name"], "streamer-dvr")
+            self.assertEqual(emitted["channel_id"], "alice")
+            self.assertEqual(emitted["metadata"], {"return_code": 1})
+            self.assertEqual(store.read_recent_events(), [event.model_dump()])
+
+    def test_observability_failure_does_not_fail_sqlite_write(self) -> None:
+        with TemporaryDirectory() as tmpdir:
+            store = self._build_store(tmpdir)
+            event = Event(
+                timestamp="2026-04-07T01:00:00+08:00",
+                level="INFO",
+                event_type="recording_started",
+                message="started",
+            )
+
+            self.emit_event_log.side_effect = real_emit_event_log
+            with patch("app.common.observability.sys.stdout.write", side_effect=OSError("collector unavailable")):
+                store.append_event(event)
+
+            self.assertEqual(store.read_recent_events()[0]["event_type"], "recording_started")
 
     def test_prune_retained_history_keeps_recent_logs_and_recent_errors(self) -> None:
         with TemporaryDirectory() as tmpdir:
