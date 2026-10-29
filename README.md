@@ -1,3 +1,5 @@
+> Development has moved to [streamer-rec](https://github.com/chihyishen/streamer-rec), a private integrated repository for recording, highlight scoring/cutting, review, training and compression. Access requires permission. This repository retains the historical recorder code and commits.
+
 # Streamer DVR
 
 A self-hosted, automated live stream recorder and archiver, built with Python (FastAPI) and Vue 3.
